@@ -81,34 +81,28 @@ class VideoEngineManager(private val context: Context) {
             var currentStep = 0
 
             val processedVideoPaths = mutableListOf<String>()
+            val sceneAudioPaths = mutableListOf<String>()
+            var fallbackSceneCount = 0
 
             val resolvedStyleAnalysis = styleAnalysis ?: StyleBrain.getCoreStyle().toAbsorbedStyle().toVideoStyleAnalysis()
             val deviceProfile = DevicePerformanceGuardian.inspectDevice(context)
+
+            // مستوى التدهور المتدرج المعلن: سينمائي → موحد → مسودة
+            val renderLevel = ProductionPowerKit.decideLevel(deviceProfile.isLowEnd, validScenes.size, videoQuality)
             
             // مسار سريع مضمون: أولوية للنجاح على الجودة فقط عندما يكون الجهاز ضعيفاً جداً أو يطلب المستخدم Fast صراحة
-            val preferGuaranteedPath = deviceProfile.isLowEnd ||
-                    videoQuality.contains("سريع", ignoreCase = true) ||
-                    videoQuality.contains("Fast", ignoreCase = true)
+            val preferGuaranteedPath = renderLevel != RenderLevel.CINEMATIC
 
-            VideoProcessor.currentQualityPreset = when {
-                preferGuaranteedPath || deviceProfile.isLowEnd -> ExportQualityPreset.FAST
-                videoQuality.contains("عالي") || videoQuality.contains("High") || videoQuality.contains("4K") -> ExportQualityPreset.HIGH
-                else -> ExportQualityPreset.BALANCED
+            VideoProcessor.currentQualityPreset = when (renderLevel) {
+                RenderLevel.DRAFT, RenderLevel.STANDARD -> ExportQualityPreset.FAST
+                RenderLevel.CINEMATIC -> if (videoQuality.contains("عالي") || videoQuality.contains("High") || videoQuality.contains("4K")) ExportQualityPreset.HIGH else ExportQualityPreset.BALANCED
             }
 
-            if (preferGuaranteedPath) {
-                SystemLogsManager.addLog(
-                    "INFO",
-                    "تفعيل المسار المضمون السريع — جودة: ${VideoProcessor.currentQualityPreset.label}",
-                    Color(0xFFE8C547)
-                )
-            } else {
-                SystemLogsManager.addLog(
-                    "INFO",
-                    "جاهزية العتاد كاملة لمعالجة الفيديو السينمائي بجودة: ${VideoProcessor.currentQualityPreset.label}",
-                    Color(0xFF4CAF50)
-                )
-            }
+            SystemLogsManager.addLog(
+                "INFO",
+                "مستوى الإنتاج: $renderLevel — جودة: ${VideoProcessor.currentQualityPreset.label}",
+                Color(if (renderLevel == RenderLevel.CINEMATIC) 0xFF4CAF50 else 0xFFE8C547)
+            )
 
             // فحص مساحة التخزين قبل بدء المعالجة
             val cacheDir = File(context.cacheDir, "qabas_engine")
@@ -135,6 +129,17 @@ class VideoEngineManager(private val context: Context) {
                     return@withContext null
                 }
 
+                // بصمة المشهد: إعادة استخدام المخزن عند عدم التغيير (ثوانٍ بدل دقائق)
+                val fingerprint = ProductionPowerKit.sceneFingerprint(scene, VideoProcessor.currentQualityPreset.label)
+                val cachedScene = ProductionPowerKit.cachedSceneFile(context, fingerprint)
+                if (cachedScene.exists() && VideoProcessor.isValidVideoFile(cachedScene.absolutePath, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
+                    processedVideoPaths.add(cachedScene.absolutePath)
+                    currentStep += 3
+                    onProgress(currentStep.toFloat() / totalSteps, "المشهد ${index + 1}: مُعاد استخدامه من الكاش ⚡")
+                    SystemLogsManager.addLog("INFO", "المشهد ${index + 1}: كاش صالح — تخطي الترميز", Color(0xFF4CAF50))
+                    return@forEachIndexed
+                }
+
                 onProgress(
                     currentStep.toFloat() / totalSteps,
                     "معالجة المشهد ${index + 1}/${validScenes.size}..."
@@ -146,7 +151,15 @@ class VideoEngineManager(private val context: Context) {
                         it.isNotBlank() && (it.startsWith("http") || File(it).exists()) 
                     } ?: scene.visualEffect.takeIf { it.startsWith("http") }
 
-                    // Priority 1: Real Pexels / Pixabay
+                    // Priority 1: Real Pexels / Pixabay (with predictive prefetch cache first)
+                    if (mediaToUse.isNullOrBlank()) {
+                        val query = "${scene.title} ${scene.description}".trim()
+                        val prefetched = BrollPrefetch.cached(query) ?: BrollPrefetch.cached(scene.title) ?: BrollPrefetch.cached(scene.description.take(60))
+                        if (!prefetched.isNullOrBlank()) {
+                            mediaToUse = prefetched
+                            SystemLogsManager.addLog("INFO", "وسائط تنبؤية جاهزة للمشهد ${index + 1} ⚡", Color(0xFF4CAF50))
+                        }
+                    }
                     if (mediaToUse.isNullOrBlank()) {
                         try {
                             val query = "${scene.title} ${scene.description}".trim()
@@ -213,6 +226,7 @@ class VideoEngineManager(private val context: Context) {
 
                     // Hard check: generation failed or invalid video → solid fallback
                     if (videoReadyPath.isBlank() || !VideoProcessor.isValidVideoFile(videoReadyPath, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
+                        fallbackSceneCount++
                         SystemLogsManager.addLog(
                             "WARN",
                             "فشل توليد مشهد ${index + 1} من الوسائط — استخدام إطار سينمائي محلي",
@@ -224,33 +238,28 @@ class VideoEngineManager(private val context: Context) {
                         videoReadyPath = solid.absolutePath
                     }
 
-                    // TTS — في المسار المضمون نستخدم محرك النطق المحلي لأندرويد فقط (بلا شبكة ولا مفاتيح)،
-                    // وإلا نكمل بدون صوت. لا يعود الفيديو من المسار المضمون أبكم إن توفر TTS النظام.
+                    // TTS — يُجمَّع لكل مشهد ثم يُدمج كمسار واحد موحد بعد الدمج (بلا تقطع).
+                    // مهلة 60ث لكل مشهد: الفاشل يتحول لإطار ويُكمل الباقي بدل قتل المشروع.
                     val spokenArabicText = if (scene.title.isNotBlank()) scene.title else scene.description
-                    val audioPath = if (preferGuaranteedPath) {
-                        try {
-                            AndroidTTSService.synthesizeSpeech(spokenArabicText)
-                        } catch (localTtsEx: Exception) {
-                            if (localTtsEx is CancellationException) throw localTtsEx
-                            Log.w(TAG, "Local system TTS unavailable in guaranteed path for scene $index")
-                            null
-                        }
-                    } else {
-                        try {
-                            AppServices.generateVoiceover(spokenArabicText)
-                        } catch (ttsEx: Exception) {
-                            if (ttsEx is CancellationException) throw ttsEx
-                            Log.w(TAG, "TTS failed for scene $index", ttsEx)
-                            null
+                    val perSceneAudio: String? = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+                        if (preferGuaranteedPath) {
+                            try { AndroidTTSService.synthesizeSpeech(spokenArabicText) } catch (localTtsEx: Exception) {
+                                if (localTtsEx is CancellationException) throw localTtsEx
+                                Log.w(TAG, "Local system TTS unavailable in guaranteed path for scene $index")
+                                null
+                            }
+                        } else {
+                            try { AppServices.generateVoiceover(spokenArabicText) } catch (ttsEx: Exception) {
+                                if (ttsEx is CancellationException) throw ttsEx
+                                Log.w(TAG, "TTS failed for scene $index", ttsEx)
+                                null
+                            }
                         }
                     }
-                    val videoWithAudioPath = if (!audioPath.isNullOrBlank() && File(audioPath).exists() && File(audioPath).length() > 1000) {
-                        val out = File(cacheDir, "vid_audio_$index.mp4").absolutePath
-                        val success = VideoProcessor.mergeAudioVideo(context, videoReadyPath, audioPath, out)
-                        if (success && VideoProcessor.isValidVideoFile(out, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) out else videoReadyPath
-                    } else {
-                        videoReadyPath
+                    if (!perSceneAudio.isNullOrBlank() && File(perSceneAudio).exists() && File(perSceneAudio).length() > 1000) {
+                        sceneAudioPaths.add(perSceneAudio)
                     }
+                    val videoWithAudioPath = videoReadyPath
 
                     currentStep++
                     onProgress(
@@ -303,10 +312,16 @@ class VideoEngineManager(private val context: Context) {
                     }
 
                     processedVideoPaths.add(scenePathAfterText)
+                    try {
+                        if (VideoProcessor.isValidVideoFile(scenePathAfterText, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
+                            File(scenePathAfterText).copyTo(cachedScene, overwrite = true)
+                        }
+                    } catch (_: Exception) {}
                     currentStep++
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     Log.e(TAG, "Failed to process scene $index, using solid fallback", e)
+                    fallbackSceneCount++
                     SystemLogsManager.addLog(
                         "ERROR",
                         "فشل المشهد ${index + 1}: ${e.localizedMessage ?: e.message} — إطار محلي",
@@ -421,13 +436,50 @@ class VideoEngineManager(private val context: Context) {
 
             // 4. Export to App's External Files Directory (no permission required)
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val finalFileName = "Qabas_Project_$timestamp.mp4"
+            val isDraft = validScenes.isNotEmpty() && fallbackSceneCount * 2 >= validScenes.size
+            val finalFileName = if (isDraft) "Qabas_Draft_${timestamp}.mp4" else "Qabas_Project_$timestamp.mp4"
+            if (isDraft) {
+                SystemLogsManager.addLog("WARN", "مسودة بلا B-Roll حقيقي ($fallbackSceneCount/${validScenes.size}) — وسم الملف كمسودة", Color(0xFFE8C547))
+            }
             val publicDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: File(context.filesDir, "movies")
             if (!publicDir.exists()) publicDir.mkdirs()
             
             val finalOutputFile = File(publicDir, finalFileName)
             
             var currentWorkingVideoPath = concatOutputPath
+
+            // دمج التعليق الصوتي الموحد (مسار واحد بلا تقطع) قبل الصوت المحيطي
+            // تمريرة واحدة: نص كامل باستدعاء واحد، وعند الفشل نعود لدمج المقاطع
+            val validAudios = sceneAudioPaths.filter { File(it).exists() && File(it).length() > 1000 }
+            val narrationPath = File(cacheDir, "final_narration.m4a").absolutePath
+            var narrationReady = false
+            try {
+                val fullText = validScenes.map { if (it.title.isNotBlank()) it.title else it.description }.joinToString(". ")
+                if (fullText.length > 3) {
+                    val singleAudio: String? = kotlinx.coroutines.withTimeoutOrNull(90_000L) {
+                        if (preferGuaranteedPath) {
+                            try { AndroidTTSService.synthesizeSpeech(fullText) } catch (_: Exception) { null }
+                        } else {
+                            try { AppServices.generateVoiceover(fullText) } catch (_: Exception) { null }
+                        }
+                    }
+                    if (!singleAudio.isNullOrBlank() && File(singleAudio).exists() && File(singleAudio).length() > 1000) {
+                        try { File(singleAudio).copyTo(File(narrationPath), overwrite = true); narrationReady = true } catch (_: Exception) {}
+                        SystemLogsManager.addLog("INFO", "تعليق موحد بتمريرة واحدة ✅", Color(0xFF4CAF50))
+                    }
+                }
+            } catch (_: Exception) {}
+            if (!narrationReady && validAudios.isNotEmpty()) {
+                narrationReady = try { VideoProcessor.concatAudios(context, validAudios, narrationPath) } catch (_: Exception) { false }
+            }
+            if (narrationReady && File(narrationPath).exists()) {
+                    val voicedPath = File(cacheDir, "final_voiced.mp4").absolutePath
+                    val voiceOk = try { VideoProcessor.mergeAudioVideo(context, currentWorkingVideoPath, narrationPath, voicedPath) } catch (_: Exception) { false }
+                    if (voiceOk && VideoProcessor.isValidVideoFile(voicedPath, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
+                        currentWorkingVideoPath = voicedPath
+                    }
+                }
+            }
 
             val noAmbient = ambientSound.contains("بدون") || ambientSound.isBlank() || ambientSound == "لا يوجد"
             if (!noAmbient) {

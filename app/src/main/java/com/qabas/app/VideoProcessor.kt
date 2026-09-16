@@ -108,6 +108,22 @@ object VideoProcessor {
         }
     }
 
+    /** Cancels any running FFmpeg session (used by UI cancel). */
+    fun cancelAll() { try { FFmpegKit.cancel() } catch (_: Exception) {} }
+
+    /** Concatenates multiple audio files into one (single narration track). */
+    suspend fun concatAudios(context: Context, audioPaths: List<String>, outputPath: String): Boolean {
+        if (audioPaths.isEmpty()) return false
+        if (audioPaths.size == 1) {
+            return try { File(audioPaths[0]).copyTo(File(outputPath), overwrite = true); true } catch (_: Exception) { false }
+        }
+        val listFile = File(context.cacheDir, "qabas_audio_list_${System.currentTimeMillis()}.txt")
+        return try {
+            listFile.writeText(audioPaths.joinToString("\n") { "file '${File(it).absolutePath.replace("'", "'\\''")}'" })
+            executeCommand("-y -f concat -safe 0 -i \"${listFile.absolutePath}\" -c:a aac -b:a 128k -ar 44100 -ac 2 \"$outputPath\"", "دمج التعليق الصوتي الموحد")
+        } finally { try { listFile.delete() } catch (_: Exception) {} }
+    }
+
     /**
      * Executes an FFmpeg command with intelligent timeout.
      * Timeout scales with operation type and quality preset to avoid false failures on real devices.

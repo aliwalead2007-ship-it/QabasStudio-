@@ -75,6 +75,8 @@ class QabasApplication : Application() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { AppRemoteConfig.refreshFromCloud(this@QabasApplication) }
             runCatching { RemoteNotificationsManager.startInbox(this@QabasApplication) }
+            // الطبيب الحي: فحص خفيف دوري (كل 6 ساعات) + علاج صامت للكاش فقط
+            runCatching { DoctorMonitor.maybeRun(this@QabasApplication) }
             // فحص التحديث في الخلفية (كل 6 ساعات فقط، لا يزعج المستخدم)
             runCatching {
                 val update = UpdateManager.checkForUpdate(this@QabasApplication)

@@ -518,7 +518,7 @@ fun AppNavigation(
                         copy(
                             libraryScenes = updatedScenes,
                             scenesToProcess = updatedScenes,
-                            appState = AppState.PROCESSING
+                            appState = AppState.REVIEW
                         )
                     }
                 }
@@ -531,16 +531,25 @@ fun AppNavigation(
             )
         }
         AppState.SAVE_SHARE -> {
+            if (state.libraryScenes.isEmpty() && state.finalVideoPath.isBlank()) {
+                ReviewScreen(
+                    state = state,
+                    onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
+                    onUpdateScenes = { updatedScenes ->
+                        viewModel.updateState { copy(libraryScenes = updatedScenes, scenesToProcess = updatedScenes) }
+                    },
+                    onUpdateAmbientSound = { sound ->
+                        viewModel.updateState { copy(ambientSound = sound) }
+                    },
+                    onAdvancedEdit = { viewModel.updateState { copy(appState = AppState.ADVANCED_EDIT) } },
+                    onApprove = { viewModel.updateState { copy(appState = AppState.SAVE_SHARE) } }
+                )
+            } else {
             SaveShareScreen(
                 scriptText = state.inputText,
                 videoDuration = state.videoDuration,
                 selectedRatio = state.selectedRatio,
-                scenes = state.libraryScenes.ifEmpty {
-                    listOf(
-                        Scene("المقدمة", "مشهد افتتاحي مهيب مع شروق الشمس", 3),
-                        Scene("المشهد الرئيسي", "عرض النص بأسلوب حركي تفاعلي", 5)
-                    )
-                },
+                scenes = state.libraryScenes,
                 ambientSound = state.ambientSound,
                 videoStyleAnalysis = state.videoStyleAnalysis,
                 onBackToHome = { viewModel.updateState { copy(appState = AppState.HOME) } },
@@ -556,6 +565,7 @@ fun AppNavigation(
                     }
                 }
             )
+            }
         }
         AppState.SMART_DIRECTOR -> {
             AiSmartDirectorScreen(
@@ -722,12 +732,7 @@ fun AppNavigation(
                 scriptText = state.inputText,
                 videoDuration = state.videoDuration,
                 selectedRatio = state.selectedRatio,
-                scenes = state.libraryScenes.ifEmpty {
-                    listOf(
-                        Scene("المقدمة", "مشهد افتتاحي مهيب مع شروق الشمس", 3),
-                        Scene("المشهد الرئيسي", "عرض النص بأسلوب حركي تفاعلي", 5)
-                    )
-                },
+                scenes = state.libraryScenes,
                 ambientSound = state.ambientSound,
                 videoStyleAnalysis = state.videoStyleAnalysis,
                 onBackToHome = { viewModel.updateState { copy(appState = AppState.HOME) } },

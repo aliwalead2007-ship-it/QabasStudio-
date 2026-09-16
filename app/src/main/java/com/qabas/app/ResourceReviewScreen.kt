@@ -565,26 +565,14 @@ fun ResourceReviewScreen(
                 }
                 AnimatedVisibility(visible = settingsExpanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SettingRow(label = Translator.tr("الأبعاد")) {
-                            listOf("1:1", "16:9", "9:16").forEach { ratio ->
-                                ChoiceChip(text = ratio, isSelected = selectedRatio == ratio, onClick = { onRatioChange(ratio) }, modifier = Modifier.weight(1f))
-                            }
-                        }
-                        SettingRow(label = Translator.tr("المدة")) {
-                            listOf(Translator.tr("15 ثانية"), Translator.tr("30 ثانية"), Translator.tr("60 ثانية")).forEach { duration ->
-                                ChoiceChip(text = duration, isSelected = videoDuration == duration, onClick = { onDurationChange(duration) }, modifier = Modifier.weight(1f))
-                            }
-                        }
-                        SettingRow(label = Translator.tr("الجودة")) {
-                            listOf(Translator.tr("HD 1080p"), Translator.tr("4K Cinematic")).forEach { q ->
-                                ChoiceChip(text = q, isSelected = videoQuality == q, onClick = { onQualityChange(q) }, modifier = Modifier.weight(1f))
-                            }
-                        }
-                        SettingRow(label = Translator.tr("صوت خلفي"), scrollable = true) {
-                            listOf(Translator.tr("طبيعة"), Translator.tr("مدينة"), Translator.tr("هادئ"), Translator.tr("بدون")).forEach { ambient ->
-                                ChoiceChip(text = ambient, isSelected = ambientSound == ambient, onClick = { onAmbientChange(ambient) })
-                            }
-                        }
+                        BreatheIn(0) { ProdLabel(Translator.tr("الأبعاد")) }
+                        BreatheIn(1) { ProdChipRow(listOf("9:16", "16:9", "1:1"), selectedRatio, onRatioChange) }
+                        BreatheIn(2) { ProdLabel(Translator.tr("المدة")) }
+                        BreatheIn(3) { ProdChipRow(listOf(Translator.tr("15 ثانية"), Translator.tr("30 ثانية"), Translator.tr("60 ثانية")), videoDuration, onDurationChange) }
+                        BreatheIn(4) { ProdLabel(Translator.tr("الجودة")) }
+                        BreatheIn(5) { ProdChipRow(listOf(Translator.tr("HD 1080p"), Translator.tr("4K Cinematic")), videoQuality, onQualityChange) }
+                        BreatheIn(6) { ProdLabel(Translator.tr("صوت خلفي")) }
+                        BreatheIn(7) { ProdChipRow(listOf(Translator.tr("طبيعة"), Translator.tr("مدينة"), Translator.tr("هادئ"), Translator.tr("بدون")), ambientSound, onAmbientChange) }
                     }
                 }
             }
@@ -640,26 +628,6 @@ private fun DashedHint(text: String) {
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = TextSecondary, fontSize = 12.sp, textAlign = TextAlign.Center)
-    }
-}
-
-@Composable
-private fun SettingRow(
-    label: String,
-    scrollable: Boolean = false,
-    content: @Composable RowScope.() -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, color = TextSecondary, fontSize = 12.sp)
-        if (scrollable) {
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                content = content
-            )
-        } else {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), content = content)
-        }
     }
 }
 

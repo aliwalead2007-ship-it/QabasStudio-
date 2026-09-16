@@ -155,49 +155,9 @@ object UpdateManager {
             try {
                 val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
 
-                // ── Strategy 1: Delta patch (~1-5MB) ──
-                if (update.deltaUrl != null && update.deltaSize > 0) {
-                    try {
-                        onProgress(0)
-                        Log.d(TAG, "Downloading delta patch (${formatSize(update.deltaSize)})...")
-
-                        val patchFile = downloadFile(update.deltaUrl, updatesDir, "patch.delta") { pct ->
-                            onProgress((pct * 0.7).toInt()) // 70% للتحميل
-                        }
-
-                        if (patchFile != null && patchFile.length() > 0) {
-                            onProgress(70)
-                            Log.d(TAG, "Applying delta patch...")
-
-                            // احصل على مسار APK الحالي
-                            val currentApk = getCurrentApkPath(context)
-                            if (currentApk != null) {
-                                val currentApkFile = File(currentApk)
-                                val newApk = File(updatesDir, "qabas-${update.versionName}.apk")
-
-                                // طبّق ملف الفرق
-                                val applied = applyDeltaPatch(currentApkFile, patchFile, newApk)
-
-                                if (applied && newApk.exists() && newApk.length() > 1_000_000) {
-                                    onProgress(100)
-                                    withContext(Dispatchers.Main) {
-                                        launchInstaller(context, newApk)
-                                        onDone(true, "تم تحميل التحديث ${update.versionName} (${formatSize(update.deltaSize)}) وتطبيق الفرق بنجاح")
-                                    }
-                                    return@launch
-                                } else {
-                                    Log.w(TAG, "Delta patch failed or result too small, falling back to full APK")
-                                    patchFile.delete()
-                                    newApk.delete()
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Delta patch failed: ${e.message}, falling back to full APK")
-                    }
-                }
-
-                // ── Strategy 2: Full APK fallback ──
+                // ملاحظة صدق: ترقيع delta يحتاج xdelta3/bspatch وهما غير موجودين على أندرويد،
+                // فالمسار الوحيد العامل هو APK الكامل. أُزيلت محاولة الـ delta الوهمية.
+                // ── Full APK ──
                 onProgress(0)
                 Log.d(TAG, "Downloading full APK (${formatSize(update.apkSize)})...")
 
@@ -313,6 +273,25 @@ object UpdateManager {
     }
 
     private fun launchInstaller(context: Context, apkFile: File) {
+        // أندرويد 8+: يجب منح "تثبيت من مصادر غير معروفة" أولاً — وإلا يُرفض التثبيت بصمت
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val pm = context.packageManager
+            if (!pm.canRequestPackageInstalls()) {
+                try {
+                    val settingsIntent = Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${context.packageName}")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    context.startActivity(settingsIntent)
+                    android.widget.Toast.makeText(
+                        context,
+                        "فعّل «السماح من هذا المصدر» ثم أعد المحاولة",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                } catch (_: Exception) {}
+                return
+            }
+        }
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",

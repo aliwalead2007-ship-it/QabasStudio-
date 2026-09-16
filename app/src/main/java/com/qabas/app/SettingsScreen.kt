@@ -629,20 +629,7 @@ fun SettingsScreen(
                             }
                         )
                     }
-                    Surface(
-                        color = Color(0xFF10B981).copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
-                    ) {
-                        Text(
-                            text = "جاهز للإنتاج 🚀",
-                            color = Color(0xFF10B981),
-                            fontFamily = CairoFont,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                    DoctorPulse()
                 }
 
                 // ── زر فحص التحديثات ──

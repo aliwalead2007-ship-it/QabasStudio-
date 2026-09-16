@@ -95,6 +95,8 @@ fun ProcessingScreen(
     val doCancel = remember(onCancel) {
         {
             try { elapsedJobRef.value?.cancel(); processingJobRef.value?.cancel() } catch (_: Exception) {}
+            try { VideoProcessor.cancelAll() } catch (_: Exception) {}
+            try { notificationService.hideProgressNotification() } catch (_: Exception) {}
             onCancel()
         }
     }
@@ -137,6 +139,16 @@ fun ProcessingScreen(
         }
 
         try {
+            // فحص مبكر: فشل رخيص في ثوانٍ بدل دقائق ترميز
+            val preflightError = ProductionPowerKit.preflight(context, inputText)
+            if (preflightError != null) {
+                isFailed = true
+                statusText = preflightError
+                pushActivity("فحص مبكر: $preflightError")
+                notificationService.showErrorNotification()
+                try { elapsedJobRef.value?.cancel() } catch (_: Exception) {}
+                return@LaunchedEffect
+            }
             pushActivity("بدء مسار الإنتاج — تهيئة العقل")
             notificationService.showProgressNotification(5, 100, Translator.tr("جاري تحضير السيناريو..."))
             currentStage = "prepare"
@@ -442,7 +454,8 @@ fun ProcessingScreen(
                 val engineDurationMs = System.currentTimeMillis() - engineStartMs
 
                 if (finalProducedFile != null && VideoProcessor.isValidVideoFile(finalProducedFile.absolutePath)) {
-                    pushActivity("تصدير ناجح: ${finalProducedFile.name}")
+                    val isDraft = finalProducedFile.name.startsWith("Qabas_Draft_")
+                    pushActivity(if (isDraft) "مسودة بلا B-Roll حقيقي: ${finalProducedFile.name}" else "تصدير ناجح: ${finalProducedFile.name}")
                     SystemLogsManager.addLog("SUCCESS", "تم إنتاج الفيديو (${finalProducedFile.name})", Color(0xFF4CAF50))
                     ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.EXPORT, ProductionPipelineTracker.Result.SUCCESS, "تصدير ناجح: ${finalProducedFile.name}", "${processedScenes.size} مشاهد | $videoQuality", engineDurationMs, pipelineRunId)
                     try { 
@@ -481,7 +494,8 @@ fun ProcessingScreen(
 
             progress = 1.0f
             if (!isFailed && finalProducedFile != null && VideoProcessor.isValidVideoFile(finalProducedFile.absolutePath)) {
-                statusText = Translator.tr("اكتملت المعالجة بنجاح!")
+                statusText = if (finalProducedFile.name.startsWith("Qabas_Draft_")) Translator.tr("اكتمل كمسودة — تعذر جلب B-Roll حقيقي")
+                else Translator.tr("اكتملت المعالجة بنجاح!")
                 pushActivity(statusText)
                 notificationService.showCompletionNotification()
                 prefs.edit().remove("cached_scenes").remove("cached_scenes_time").apply()
@@ -611,9 +625,9 @@ private fun ProcessingScreenUI(
         ) {
             ProcessingProgressRing(progress, scenesProcessed, totalScenes)
             Spacer(modifier = Modifier.height(16.dp))
-            ProcessingDetailsText(statusText, progress, elapsedSeconds, currentStage)
+            BreatheIn(0) { ProcessingDetailsText(statusText, progress, elapsedSeconds, currentStage) }
             Spacer(modifier = Modifier.height(14.dp))
-            ProcessingStagePipeline(currentStage, progress)
+            BreatheIn(1) { ProcessingStagePipeline(currentStage, progress) }
             Spacer(modifier = Modifier.height(14.dp))
 
             // شريط تقدم فاخر — هوية قبس
