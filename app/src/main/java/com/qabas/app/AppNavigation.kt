@@ -667,13 +667,14 @@ fun AppNavigation(
             )
         }
         AppState.RESOURCES -> {
-            ResourcesScreen(
+            ResourceReviewScreen(
+                ideaText = state.inputText,
                 mediaResources = state.mediaResources,
                 onAddResource = { resource ->
                     viewModel.updateState { copy(mediaResources = mediaResources + resource) }
                 },
                 onUpdateResource = { updatedResource ->
-                    viewModel.updateState { 
+                    viewModel.updateState {
                         copy(mediaResources = mediaResources.map { if (it.id == updatedResource.id) updatedResource else it })
                     }
                 },
@@ -690,17 +691,10 @@ fun AppNavigation(
                 onStyleChange = { st -> viewModel.updateState { copy(editingStyle = st) } },
                 voiceOver = state.voiceOver,
                 onVoiceChange = { v -> viewModel.updateState { copy(voiceOver = v) } },
-                musicVibe = state.musicVibe,
-                onMusicChange = { m -> viewModel.updateState { copy(musicVibe = m) } },
-                selectedTemplate = state.selectedTemplate,
-                onTemplateChange = { t -> viewModel.updateState { copy(selectedTemplate = t) } },
-                customTemplate = state.customTemplate,
-                onCustomTemplateChange = { ct -> viewModel.updateState { copy(customTemplate = ct) } },
-                videoQuality = state.videoQuality,
-                onQualityChange = { q -> viewModel.updateState { copy(videoQuality = q) } },
                 ambientSound = state.ambientSound,
                 onAmbientChange = { amb -> viewModel.updateState { copy(ambientSound = amb) } },
-                ideaText = state.inputText,
+                videoQuality = state.videoQuality,
+                onQualityChange = { q -> viewModel.updateState { copy(videoQuality = q) } },
                 videoStyleAnalysis = state.videoStyleAnalysis
             )
         }
