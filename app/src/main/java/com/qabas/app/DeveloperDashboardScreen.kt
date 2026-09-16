@@ -51,7 +51,7 @@ import java.util.zip.ZipOutputStream
 enum class DashboardSection {
     MAIN, REQUESTS, SYSTEM_CONTROLS, NOTIFICATIONS, USERS, STATS, LOGS,
     CRASH_LOGS, ACCOUNT_SETTINGS, PROMO_CODES, REVENUE, DEV_STUDIO_SIGNATURE,
-    AGENCY_MONETIZATION, DEV_PORTFOLIO_SHOWCASE, APP_DOCTOR, STYLE_BRAIN,
+    AGENCY_MONETIZATION, APP_DOCTOR, STYLE_BRAIN,
     API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, DIAGNOSTICS
 }
 
@@ -165,7 +165,6 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             DashboardSection.BACKUP -> "نسخ احتياطي واسترجاع 📦"
                             DashboardSection.DEV_STUDIO_SIGNATURE -> "استوديو إنتاج المطور وتوقيع الفيديوهات ✦"
                             DashboardSection.AGENCY_MONETIZATION -> "استوديو وكالة الأرباح والخدمات المدفوعة 💰"
-                            DashboardSection.DEV_PORTFOLIO_SHOWCASE -> "معرض وبروفايل أعمال المطور ✦"
                             DashboardSection.APP_DOCTOR -> "طبيب التطبيق 🩺"
                             DashboardSection.STYLE_BRAIN -> "عقل الأساليب 🧠"
                             DashboardSection.API_KEYS -> "مفاتيح API 🔑"
@@ -306,7 +305,6 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                         onRevenue = { currentSection = DashboardSection.REVENUE },
                         onDevStudioSignature = { currentSection = DashboardSection.DEV_STUDIO_SIGNATURE },
                         onAgencyMonetization = { currentSection = DashboardSection.AGENCY_MONETIZATION },
-                        onDevPortfolioShowcase = { currentSection = DashboardSection.DEV_PORTFOLIO_SHOWCASE },
                         onAppDoctor = { currentSection = DashboardSection.APP_DOCTOR },
                         onStyleBrain = { currentSection = DashboardSection.STYLE_BRAIN },
                         onApiKeys = { currentSection = DashboardSection.API_KEYS },
@@ -325,9 +323,6 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 }
                 DashboardSection.API_KEYS -> {
                     ApiKeysScreen(onBack = { currentSection = DashboardSection.MAIN })
-                }
-                DashboardSection.DEV_PORTFOLIO_SHOWCASE -> {
-                    DevPortfolioShowcaseScreen(context = context, onBack = { currentSection = DashboardSection.MAIN })
                 }
                 DashboardSection.AGENCY_MONETIZATION -> {
                     AgencyMonetizationHub(context = context)
@@ -401,7 +396,6 @@ fun DashboardMainGrid(
     onRevenue: () -> Unit,
     onDevStudioSignature: () -> Unit,
     onAgencyMonetization: () -> Unit,
-    onDevPortfolioShowcase: () -> Unit,
 onAppDoctor: () -> Unit,
                         onStyleBrain: () -> Unit,
                         onApiKeys: () -> Unit,
@@ -513,26 +507,27 @@ onAppDoctor: () -> Unit,
         val Red = Color(0xFFEF4444)
         val Amber = Color(0xFFE8C547)
         val items = listOf(
-            Quad("طبيب التطبيق", Icons.Default.MedicalServices, Gold, onAppDoctor),
-            Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain),
-            Quad("وكالة الأرباح والخدمات", Icons.Default.MonetizationOn, Green, onAgencyMonetization),
-            Quad("معرض أعمال المطور", Icons.Default.Stars, Amber, onDevPortfolioShowcase),
-            Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature),
-            Quad("إدارة المستخدمين", Icons.Default.Group, Cyan, onUsers),
-            Quad("المبيعات والإيرادات", Icons.Default.AttachMoney, Green, onRevenue),
-            Quad("المكافآت والأكواد", Icons.Default.CardGiftcard, Violet, onPromoCodes),
-            Quad("الإحصائيات والأرباح", Icons.Default.Analytics, Cyan, onStats),
-            Quad("إرسال الإشعارات", Icons.Default.Notifications, Amber, onNotifications),
-            Quad("طلبات التطبيقات", Icons.Default.Build, Cyan, onRequestSection),
-            Quad("التحكم في النظام", Icons.Default.Settings, Color(0xFF94A3B8), onSystemControls),
-            Quad("سجل الانهيارات", Icons.Default.BugReport, Red, onCrashLogs),
-            Quad("إعدادات حساب المطور", Icons.Default.ManageAccounts, Cyan, onAccountSettings),
-            Quad("مفاتيح API", Icons.Default.VpnKey, Cyan, onApiKeys),
-            Quad("سجل التدقيق", Icons.Default.History, Violet, onAuditLog),
-            Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup),
-            Quad("مسار الإنتاج", Icons.Default.PlayCircle, Gold, onProductionPipeline),
-            Quad("تشخيص شامل", Icons.Default.HealthAndSafety, Gold, onDiagnostics)
+            Quad("طبيب التطبيق", Icons.Default.MedicalServices, Gold, onAppDoctor, "الصحة والتشخيص"),
+            Quad("تشخيص شامل", Icons.Default.HealthAndSafety, Gold, onDiagnostics, "الصحة والتشخيص"),
+            Quad("سجل الانهيارات", Icons.Default.BugReport, Red, onCrashLogs, "الصحة والتشخيص"),
+            Quad("سجلات النظام", Icons.AutoMirrored.Filled.List, Gold, onLogs, "الصحة والتشخيص"),
+            Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain, "الإنتاج والمحتوى"),
+            Quad("مسار الإنتاج", Icons.Default.PlayCircle, Gold, onProductionPipeline, "الإنتاج والمحتوى"),
+            Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature, "الإنتاج والمحتوى"),
+            Quad("إدارة المستخدمين", Icons.Default.Group, Cyan, onUsers, "المال والمستخدمون"),
+            Quad("المبيعات والإيرادات", Icons.Default.AttachMoney, Green, onRevenue, "المال والمستخدمون"),
+            Quad("وكالة الأرباح والخدمات", Icons.Default.MonetizationOn, Green, onAgencyMonetization, "المال والمستخدمون"),
+            Quad("المكافآت والأكواد", Icons.Default.CardGiftcard, Violet, onPromoCodes, "المال والمستخدمون"),
+            Quad("طلبات التطبيقات", Icons.Default.Build, Cyan, onRequestSection, "المال والمستخدمون"),
+            Quad("الإحصائيات والأرباح", Icons.Default.Analytics, Cyan, onStats, "النظام والإعدادات"),
+            Quad("إرسال الإشعارات", Icons.Default.Notifications, Amber, onNotifications, "النظام والإعدادات"),
+            Quad("التحكم في النظام", Icons.Default.Settings, Color(0xFF94A3B8), onSystemControls, "النظام والإعدادات"),
+            Quad("إعدادات حساب المطور", Icons.Default.ManageAccounts, Cyan, onAccountSettings, "النظام والإعدادات"),
+            Quad("مفاتيح API", Icons.Default.VpnKey, Cyan, onApiKeys, "النظام والإعدادات"),
+            Quad("سجل التدقيق", Icons.Default.History, Violet, onAuditLog, "النظام والإعدادات"),
+            Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup, "النظام والإعدادات")
         )
+        val grouped = items.groupBy { it.group }.toList()
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -541,63 +536,11 @@ onAppDoctor: () -> Unit,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(items) { quad ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1.1f)
-                        .clickable { quad.onClick() },
-                    colors = CardDefaults.cardColors(containerColor = CardSurface),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, quad.accent.copy(alpha = 0.35f)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(quad.accent.copy(alpha = 0.08f), Color.Transparent, Color(0xFF0B0F19).copy(alpha = 0.3f))))) {
-                        Column(
-                            modifier = Modifier.fillMaxSize().padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .background(
-                                        Brush.linearGradient(listOf(quad.accent.copy(alpha = 0.22f), quad.accent.copy(alpha = 0.08f))),
-                                        RoundedCornerShape(14.dp)
-                                    )
-                                    .border(1.dp, quad.accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(quad.icon, contentDescription = null, tint = quad.accent, modifier = Modifier.size(22.dp))
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(quad.title, color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                        }
-                    }
+            grouped.forEach { (group, quads) ->
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    DashGroupHeader(group)
                 }
-            }
-            
-            // Full width item for logs
-            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable { onLogs() }.height(80.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardSurface),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, tint = GoldPrimary)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("سجلات النظام الحية (Logs)", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
-                        }
-                        Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    }
-                }
+                items(quads) { quad -> DashCard(quad) }
             }
         }
     }
@@ -607,11 +550,58 @@ private data class Quad(
     val title: String,
     val icon: ImageVector,
     val accent: Color,
-    val onClick: () -> Unit
+    val onClick: () -> Unit,
+    val group: String = ""
 )
 
 @Composable
-fun QuickMetric(icon: ImageVector, title: String, value: String) {    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun DashGroupHeader(title: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(Modifier.width(10.dp))
+        HorizontalDivider(modifier = Modifier.weight(1f), color = GoldPrimary.copy(alpha = 0.25f))
+    }
+}
+
+@Composable
+private fun DashCard(quad: Quad) {
+    Card(
+        modifier = Modifier.fillMaxWidth().aspectRatio(1.1f).clickable { quad.onClick() },
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, quad.accent.copy(alpha = 0.35f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(quad.accent.copy(alpha = 0.08f), Color.Transparent, Color(0xFF0B0F19).copy(alpha = 0.3f))))) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier.size(52.dp)
+                        .background(
+                            Brush.linearGradient(listOf(quad.accent.copy(alpha = 0.22f), quad.accent.copy(alpha = 0.08f))),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .border(1.dp, quad.accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(quad.icon, contentDescription = null, tint = quad.accent, modifier = Modifier.size(22.dp))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(quad.title, color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+        }
+    }
+}
+
+@Composable
+fun QuickMetric(icon: ImageVector, title: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(value, color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)

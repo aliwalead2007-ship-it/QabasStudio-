@@ -1063,6 +1063,10 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 }
 
                 item {
+                    KeyGroupHeader("الذكاء الاصطناعي — متصلة بالمحرك")
+                }
+
+                item {
                     ApiKeyCard(
                         serviceType = "gemini",
                         title = "1. Gemini API (Google AI)",
@@ -1115,6 +1119,10 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 }
 
                 item {
+                    KeyGroupHeader("الصوت — لها بديل محلي مجاني")
+                }
+
+                item {
                     ApiKeyCard(
                         serviceType = "azure",
                         title = "4. Azure Speech (TTS)",
@@ -1144,6 +1152,10 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 }
 
                 item {
+                    KeyGroupHeader("الوسائط — متصلة بجلب B-Roll")
+                }
+
+                item {
                     ApiKeyCard(
                         serviceType = "pexels",
                         title = "6. Pexels API Key",
@@ -1170,10 +1182,11 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 }
 
                 item {
-                    FirebaseConfigCard(
-                        value = firebaseKey,
-                        onValueChange = { firebaseKey = it }
-                    )
+                    KeyGroupHeader("السحابة — تُدار خارج هذه الشاشة")
+                }
+
+                item {
+                    CloudStatusCard()
                 }
             }
 
@@ -1985,6 +1998,58 @@ fun ApiKeyCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun KeyGroupHeader(title: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = GoldPrimary.copy(alpha = 0.3f))
+        Text(
+            title, color = GoldPrimary, fontFamily = CairoFont,
+            fontWeight = FontWeight.Bold, fontSize = 13.sp,
+            modifier = Modifier.padding(horizontal = 10.dp)
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f), color = GoldPrimary.copy(alpha = 0.3f))
+    }
+}
+
+@Composable
+fun CloudStatusCard() {
+    val supabaseOk = SupabaseConfig.isConfigured
+    val firebaseOk = CloudServices.isFirebaseInitialized
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.25f))
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CloudStatusRow("Supabase", supabaseOk, if (supabaseOk) "متصلة عبر BuildConfig" else "غير مهيأة — تُحقن من Secrets")
+            CloudStatusRow("Firebase", firebaseOk, if (firebaseOk) "مهيأة عبر google-services.json" else "تُدار عبر ملف الإعداد لا مفتاح يدوي")
+            Text(
+                "لا حاجة للصق أي مفتاح هنا — السحابة تعمل بملفات الإعداد المحقونة.",
+                color = TextSecondary, fontFamily = CairoFont, fontSize = 11.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun CloudStatusRow(name: String, ok: Boolean, detail: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier.size(8.dp)
+                .clip(CircleShape)
+                .background(if (ok) Color(0xFF10B981) else Color(0xFF6B7280))
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(name, color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(detail, color = TextSecondary, fontFamily = CairoFont, fontSize = 11.sp)
     }
 }
 
