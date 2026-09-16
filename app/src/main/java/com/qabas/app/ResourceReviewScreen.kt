@@ -32,7 +32,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.horizontalScroll
 import coil.compose.AsyncImage
+import com.qabas.app.ui.input.MediaPickerHelpers
 import com.qabas.app.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -125,7 +127,7 @@ fun ResourceReviewScreen(
         fetchError = null
         try {
             val results = mutableListOf<FetchedMedia>()
-            val queries = ideaText.split(" ", "،", ",").filter { it.length > 2 }.take(3)
+            val queries = ideaText.split(" ", "،", ",").filter { it.length > 2 }.take(3).toMutableList()
             if (queries.isEmpty()) queries.add(ideaText.take(30))
 
             for (query in queries) {
