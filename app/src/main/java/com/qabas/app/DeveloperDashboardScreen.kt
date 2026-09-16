@@ -506,26 +506,32 @@ onAppDoctor: () -> Unit,
             }
         }
 
+        val Gold = GoldPrimary
+        val Cyan = Color(0xFF22D3EE)
+        val Violet = Color(0xFF8B5CF6)
+        val Green = Color(0xFF10B981)
+        val Red = Color(0xFFEF4444)
+        val Amber = Color(0xFFE8C547)
         val items = listOf(
-            Triple("طبيب التطبيق 🩺", Icons.Default.MedicalServices, onAppDoctor),
-            Triple("عقل الأساليب 🧠", Icons.Default.Psychology, onStyleBrain),
-            Triple("وكالة الأرباح والخدمات 💰", Icons.Default.MonetizationOn, onAgencyMonetization),
-            Triple("معرض أعمال المطور ✦", Icons.Default.Stars, onDevPortfolioShowcase),
-            Triple("توقيع واستوديو المطور ✦", Icons.Default.Verified, onDevStudioSignature),
-            Triple("إدارة المستخدمين", Icons.Default.Group, onUsers),
-            Triple("المبيعات والإيرادات", Icons.Default.AttachMoney, onRevenue),
-            Triple("المكافآت والأكواد", Icons.Default.CardGiftcard, onPromoCodes),
-            Triple("الإحصائيات والأرباح", Icons.Default.Analytics, onStats),
-            Triple("إرسال الإشعارات", Icons.Default.Notifications, onNotifications),
-            Triple("طلبات التطبيقات", Icons.Default.Build, onRequestSection),
-            Triple("التحكم في النظام", Icons.Default.Settings, onSystemControls),
-            Triple("سجل الانهيارات 🛡️", Icons.Default.BugReport, onCrashLogs),
-            Triple("إعدادات حساب المطور", Icons.Default.ManageAccounts, onAccountSettings),
-            Triple("مفاتيح API 🔑", Icons.Default.VpnKey, onApiKeys),
-            Triple("سجل التدقيق 📋", Icons.Default.History, onAuditLog),
-            Triple("نسخ احتياطي واسترجاع 📦", Icons.Default.Backup, onBackup),
-            Triple("مسار الإنتاج 🎬", Icons.Default.PlayCircle, onProductionPipeline),
-            Triple("تشخيص شامل 🏥", Icons.Default.MedicalServices, onDiagnostics)
+            Quad("طبيب التطبيق", Icons.Default.MedicalServices, Gold, onAppDoctor),
+            Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain),
+            Quad("وكالة الأرباح والخدمات", Icons.Default.MonetizationOn, Green, onAgencyMonetization),
+            Quad("معرض أعمال المطور", Icons.Default.Stars, Amber, onDevPortfolioShowcase),
+            Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature),
+            Quad("إدارة المستخدمين", Icons.Default.Group, Cyan, onUsers),
+            Quad("المبيعات والإيرادات", Icons.Default.AttachMoney, Green, onRevenue),
+            Quad("المكافآت والأكواد", Icons.Default.CardGiftcard, Violet, onPromoCodes),
+            Quad("الإحصائيات والأرباح", Icons.Default.Analytics, Cyan, onStats),
+            Quad("إرسال الإشعارات", Icons.Default.Notifications, Amber, onNotifications),
+            Quad("طلبات التطبيقات", Icons.Default.Build, Cyan, onRequestSection),
+            Quad("التحكم في النظام", Icons.Default.Settings, Color(0xFF94A3B8), onSystemControls),
+            Quad("سجل الانهيارات", Icons.Default.BugReport, Red, onCrashLogs),
+            Quad("إعدادات حساب المطور", Icons.Default.ManageAccounts, Cyan, onAccountSettings),
+            Quad("مفاتيح API", Icons.Default.VpnKey, Cyan, onApiKeys),
+            Quad("سجل التدقيق", Icons.Default.History, Violet, onAuditLog),
+            Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup),
+            Quad("مسار الإنتاج", Icons.Default.PlayCircle, Gold, onProductionPipeline),
+            Quad("تشخيص شامل", Icons.Default.HealthAndSafety, Gold, onDiagnostics)
         )
 
         LazyVerticalGrid(
@@ -535,18 +541,18 @@ onAppDoctor: () -> Unit,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(items) { (title, icon, onClick) ->
+            items(items) { quad ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1.1f)
-                        .clickable { onClick() },
+                        .clickable { quad.onClick() },
                     colors = CardDefaults.cardColors(containerColor = CardSurface),
                     shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, quad.accent.copy(alpha = 0.35f)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
-                    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF0B0F19).copy(alpha = 0.3f))))) {
+                    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(quad.accent.copy(alpha = 0.08f), Color.Transparent, Color(0xFF0B0F19).copy(alpha = 0.3f))))) {
                         Column(
                             modifier = Modifier.fillMaxSize().padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -554,15 +560,18 @@ onAppDoctor: () -> Unit,
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(48.dp)
-                                    .background(GoldPrimary.copy(alpha = 0.1f), CircleShape)
-                                    .border(1.dp, GoldPrimary.copy(alpha = 0.2f), CircleShape),
+                                    .size(52.dp)
+                                    .background(
+                                        Brush.linearGradient(listOf(quad.accent.copy(alpha = 0.22f), quad.accent.copy(alpha = 0.08f))),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .border(1.dp, quad.accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(icon, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(24.dp))
+                                Icon(quad.icon, contentDescription = null, tint = quad.accent, modifier = Modifier.size(22.dp))
                             }
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text(title, color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Text(quad.title, color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
                     }
                 }
@@ -594,9 +603,15 @@ onAppDoctor: () -> Unit,
     }
 }
 
+private data class Quad(
+    val title: String,
+    val icon: ImageVector,
+    val accent: Color,
+    val onClick: () -> Unit
+)
+
 @Composable
-fun QuickMetric(icon: ImageVector, title: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun QuickMetric(icon: ImageVector, title: String, value: String) {    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(value, color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
