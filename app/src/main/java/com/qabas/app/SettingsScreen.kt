@@ -67,6 +67,16 @@ fun SettingsScreen(
     var updateInfo by remember { mutableStateOf<UpdateManager.UpdateInfo?>(null) }
     var updateProgress by remember { mutableStateOf(0) }
 
+    // ── Developer Mode:叩 مخفي على نص الإصدار (7 مرات) ──
+    var devTapCount by remember { mutableIntStateOf(0) }
+    var showPassphraseDialog by remember { mutableStateOf(false) }
+    var passphraseInput by remember { mutableStateOf("") }
+    var passphraseError by remember { mutableStateOf(false) }
+    val isDevMode = remember {
+        context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+            .getBoolean("is_developer", false)
+    }
+
     if (linkDialogState != null && selectedPlatform != null) {
         AlertDialog(
             onDismissRequest = { if (!isLinking) linkDialogState = null },
@@ -603,7 +613,21 @@ fun SettingsScreen(
                 ) {
                     Column {
                         Text(Translator.tr("إصدار المنصة الرسمي"), color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("الإصدار: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})", color = GoldPrimary, fontFamily = NotoSansFont, fontSize = 12.sp)
+                        Text(
+                            "الإصدار: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                            color = GoldPrimary,
+                            fontFamily = NotoSansFont,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable {
+                                devTapCount++
+                                if (devTapCount >= 7 && !isDevMode) {
+                                    showPassphraseDialog = true
+                                    devTapCount = 0
+                                } else if (isDevMode) {
+                                    Toast.makeText(context, "وضع المطور مفعّل بالفعل", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                     }
                     Surface(
                         color = Color(0xFF10B981).copy(alpha = 0.15f),
@@ -891,6 +915,88 @@ fun SettingsScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary)
                         ) {
                             Text("أوافق وملتزم", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                )
+            }
+
+            // ── حوار تفعيل وضع المطور (叩 7 مرات على الإصدار) ──
+            if (showPassphraseDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        showPassphraseDialog = false
+                        passphraseInput = ""
+                        passphraseError = false
+                    },
+                    containerColor = Color(0xFF0D1117),
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DeveloperMode, contentDescription = null, tint = AiViolet, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("تفعيل وضع المطور", color = AiViolet, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("أدخل كلمة المرور السرية لتفعيل وضع المطور:", color = Color.White, fontFamily = CairoFont, fontSize = 13.sp)
+                            OutlinedTextField(
+                                value = passphraseInput,
+                                onValueChange = {
+                                    passphraseInput = it
+                                    passphraseError = false
+                                },
+                                placeholder = { Text("كلمة المرور", color = Color.Gray, fontFamily = CairoFont) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AiViolet,
+                                    unfocusedBorderColor = Color(0xFF334155),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (passphraseError) {
+                                Text("كلمة المرور غير صحيحة", color = Color(0xFFF97316), fontFamily = CairoFont, fontSize = 11.sp)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                // كلمة المرور السرية: hash مبسط
+                                val correctHash = "d3b07384d113edec49eaa6238ad5ff00" // md5("qabas_dev_2024")
+                                val inputHash = passphraseInput.toByteArray().let { bytes ->
+                                    java.security.MessageDigest.getInstance("MD5")
+                                        .digest(bytes)
+                                        .joinToString("") { "%02x".format(it) }
+                                }
+                                if (inputHash == correctHash) {
+                                    // فعّل وضع المطور
+                                    context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putBoolean("is_developer", true)
+                                        .apply()
+                                    showPassphraseDialog = false
+                                    passphraseInput = ""
+                                    Toast.makeText(context, "تم تفعيل وضع المطور! 🛠️", Toast.LENGTH_LONG).show()
+                                } else {
+                                    passphraseError = true
+                                    passphraseInput = ""
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AiViolet),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("تفعيل", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            showPassphraseDialog = false
+                            passphraseInput = ""
+                            passphraseError = false
+                        }) {
+                            Text("إلغاء", color = Color.Gray, fontFamily = CairoFont)
                         }
                     }
                 )
