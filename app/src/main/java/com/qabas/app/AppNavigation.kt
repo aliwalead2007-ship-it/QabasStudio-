@@ -440,7 +440,29 @@ fun AppNavigation(
                 onStateChange = { newState -> viewModel.updateState { newState } },
                 onProceed = { viewModel.updateState { copy(appState = AppState.UNDERSTANDING) } },
                 onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
-                onOpenAudioLibrary = { viewModel.updateState { copy(appState = AppState.AUDIO_LIBRARY) } }
+                onOpenAudioLibrary = { viewModel.updateState { copy(appState = AppState.AUDIO_LIBRARY) } },
+                onOpenDirector = { viewModel.updateState { copy(appState = AppState.DIRECTOR_CHAT) } },
+                onOpenQasas = { viewModel.updateState { copy(appState = AppState.QASAS) } },
+                onOpenClips = { viewModel.updateState { copy(appState = AppState.CLIP_EXTRACTOR) } }
+            )
+        }
+        AppState.DIRECTOR_CHAT -> {
+            DirectorChatScreen(
+                initialText = state.inputText,
+                onBack = { viewModel.updateState { copy(appState = AppState.INPUT) } },
+                onComplete = { brief ->
+                    viewModel.createProject(brief.idea)
+                    viewModel.updateState {
+                        copy(
+                            inputText = brief.idea,
+                            contentType = brief.contentType.ifBlank { "ريلز / شورتس" },
+                            contentTone = brief.contentTone.ifBlank { "خاشع" },
+                            videoDuration = brief.videoDuration.ifBlank { "30 ثانية" },
+                            selectedRatio = brief.selectedRatio.ifBlank { "9:16" },
+                            appState = AppState.UNDERSTANDING
+                        )
+                    }
+                }
             )
         }
         AppState.UNDERSTANDING -> {
@@ -456,7 +478,11 @@ fun AppNavigation(
                     viewModel.updateState { copy(styleDescription = newStyle) }
                 },
                 onEditIdea = { viewModel.updateState { copy(appState = AppState.INPUT) } },
-                onProceed = { viewModel.updateState { copy(appState = AppState.RESOURCES) } }
+                onProceed = {
+                    val cur = state.styleDescription
+                    val withCaptions = if (cur.contains("kinetic captions")) cur else (cur + CaptionStyles.VIRAL_DIRECTIVE)
+                    viewModel.updateState { copy(styleDescription = withCaptions, appState = AppState.RESOURCES) }
+                }
             )
         }
         AppState.PROCESSING -> {
@@ -473,6 +499,7 @@ fun AppNavigation(
                 videoDuration = state.videoDuration,
                 existingScenes = scenesForEngine,
                 onProcessingComplete = { processedScenes ->
+                    try { StreakManager.recordProduction(context) } catch (_: Exception) {}
                     viewModel.updateState {
                         copy(
                             libraryScenes = processedScenes,
@@ -498,8 +525,47 @@ fun AppNavigation(
                 onUpdateAmbientSound = { sound ->
                     viewModel.updateState { copy(ambientSound = sound) }
                 },
-                onAdvancedEdit = { viewModel.updateState { copy(appState = AppState.ADVANCED_EDIT) } },
+                onAdvancedEdit = { viewModel.updateState { copy(appState = AppState.TRANSCRIPT_EDIT) } },
                 onApprove = { viewModel.updateState { copy(appState = AppState.SAVE_SHARE) } }
+            )
+        }
+        AppState.TRANSCRIPT_EDIT -> {
+            val scenesToEdit = (state.scenesToProcess?.takeIf { it.isNotEmpty() } ?: state.libraryScenes).ifEmpty {
+                listOf(Scene("المقدمة", "مشهد افتتاحي", 3))
+            }
+            TranscriptVideoEditorScreen(
+                scenes = scenesToEdit,
+                onBack = { viewModel.updateState { copy(appState = AppState.REVIEW) } },
+                onApply = { updatedScenes ->
+                    viewModel.updateState { copy(libraryScenes = updatedScenes, scenesToProcess = updatedScenes, appState = AppState.REVIEW) }
+                }
+            )
+        }
+        AppState.QASAS -> {
+            QasasStorytellerScreen(
+                onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
+                onCreateReel = { script, topic ->
+                    viewModel.createProject(script)
+                    viewModel.updateState {
+                        copy(projectTitle = topic.ifBlank { "قصة - قبس" }, inputText = script,
+                            selectedRatio = "9:16", contentType = "قصة", videoDuration = "30 ثانية",
+                            appState = AppState.UNDERSTANDING)
+                    }
+                }
+            )
+        }
+        AppState.CLIP_EXTRACTOR -> {
+            ClipExtractorScreen(
+                initialText = state.inputText,
+                onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
+                onCreateReel = { script, topic ->
+                    viewModel.createProject(script)
+                    viewModel.updateState {
+                        copy(projectTitle = topic.ifBlank { "مقطع - قبس" }, inputText = script,
+                            selectedRatio = "9:16", contentType = "موعظة", videoDuration = "30 ثانية",
+                            appState = AppState.UNDERSTANDING)
+                    }
+                }
             )
         }
         AppState.ADVANCED_EDIT -> {

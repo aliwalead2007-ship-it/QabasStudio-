@@ -51,7 +51,10 @@ fun InputScreen(
     onStateChange: (ProjectState) -> Unit,
     onProceed: () -> Unit,
     onBack: () -> Unit = {},
-    onOpenAudioLibrary: () -> Unit = {}
+    onOpenAudioLibrary: () -> Unit = {},
+    onOpenDirector: () -> Unit = {},
+    onOpenQasas: () -> Unit = {},
+    onOpenClips: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -292,6 +295,14 @@ fun InputScreen(
                         )
                     }
                 },
+                actions = {
+                    val streak = remember { try { StreakManager.getStreak(context) } catch (_: Exception) { 0 } }
+                    if (streak > 0) {
+                        Surface(shape = RoundedCornerShape(10.dp), color = Color(0xFFF59E0B).copy(alpha = 0.15f), modifier = Modifier.padding(end = 12.dp)) {
+                            Text("🔥 $streak", color = Color(0xFFF59E0B), fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DeepSlate)
             )
         }
@@ -348,6 +359,43 @@ fun InputScreen(
                                 )
                             }
                         }
+
+                        SourceTypeCard(
+                            title = Translator.tr("المخرج — احكِ وهو يجهز"),
+                            subtitle = Translator.tr("محادثة حرة: افهم فكرتك ويسألك عن الناقص ويبني موجز المشروع"),
+                            icon = Icons.Default.AutoAwesome,
+                            badge = Translator.tr("جديد ✨"),
+                            badgeColor = Color(0xFF8B5CF6),
+                            accentColor = Color(0xFF8B5CF6),
+                            onClick = { onOpenDirector() }
+                        )
+
+                        SourceTypeCard(
+                            title = Translator.tr("قاص قبس — قصص تتحول لريلز"),
+                            subtitle = Translator.tr("5 قصص قرآنية مروية + اسأل القاص وحول أي قصة لفيديو"),
+                            icon = Icons.Default.MenuBook,
+                            badge = Translator.tr("جديد 📖"),
+                            badgeColor = GoldPrimary,
+                            accentColor = GoldPrimary,
+                            onClick = { onOpenQasas() }
+                        )
+
+                        SourceTypeCard(
+                            title = Translator.tr("مقص المقاطع — من الطويل للقصير"),
+                            subtitle = Translator.tr("الصق خطبة أو تفريغاً طويلاً فيستخرج 5 لحظات ذهبية كريلزات"),
+                            icon = Icons.Default.ContentCut,
+                            badge = Translator.tr("جديد ✂️"),
+                            badgeColor = Color(0xFF34D399),
+                            accentColor = Color(0xFF34D399),
+                            onClick = { onOpenClips() }
+                        )
+
+                        TrendRadarCard(
+                            onPick = {
+                                selectedSourceType = "idea"
+                                onStateChange(state.copy(sourceType = "idea", inputText = it))
+                            }
+                        )
 
                         SourceTypeCard(
                             title = Translator.tr("ابدأ من فكرة نصية"),
@@ -2343,6 +2391,48 @@ private fun SourceTypeCard(
                 tint = Color(0xFF475569),
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun TrendRadarCard(onPick: (String) -> Unit) {
+    var topics by remember { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(Unit) {
+        try { topics = TrendRadar.getDailyTopics() } catch (_: Exception) { topics = TrendRadar.EvergreenFallback }
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF151B2B)),
+        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Whatshot, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("رادار الترند اليوم 🔥", color = Color(0xFFF59E0B), fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+            if (topics == null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color(0xFFF59E0B))
+                    Spacer(Modifier.width(8.dp))
+                    Text("نرصد الرائج الآن...", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+                }
+            } else {
+                topics!!.forEach { t ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(Color(0xFF0B0F19), RoundedCornerShape(10.dp))
+                            .clickable { onPick(t) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(t, color = Color.White, fontFamily = CairoFont, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
         }
     }
 }

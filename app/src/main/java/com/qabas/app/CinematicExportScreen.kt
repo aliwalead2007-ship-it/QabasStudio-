@@ -76,7 +76,7 @@ fun SaveShareScreen(
     var retryTrigger by remember { mutableIntStateOf(0) }
     var exportedFile by remember { mutableStateOf<File?>(null) }
     var customSeoTitle by remember { mutableStateOf(scriptText) }
-    var activeHashtags by remember { mutableStateOf("#قبس #ريلز_إسلامي #تدبر #أثر_لا_ينقطع #حديث_شريف ✨") }
+    var activeHashtags by remember { mutableStateOf(SharePack.HASHTAGS_3) }
     var showDirectPublisher by remember { mutableStateOf(false) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     var showThumbnailGenerator by remember { mutableStateOf(false) }

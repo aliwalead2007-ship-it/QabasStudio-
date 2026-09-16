@@ -352,7 +352,6 @@ object RealGeminiService {
         val ideaOk = ContentFilterService.filterText(idea)
         val styleOk = styleDescription.isBlank() || ContentFilterService.filterText(styleDescription)
         if (!ideaOk) {
-            // Soft log only — still try to produce scenes from the idea instead of black error clip
             SystemLogsManager.addLog(
                 "WARN",
                 "تحذير فلتر المحتوى على الفكرة — سيتم المتابعة بالإنتاج",
@@ -366,88 +365,109 @@ object RealGeminiService {
                 androidx.compose.ui.graphics.Color(0xFFE8C547)
             )
         }
-        val apiKey = KeyVault.gemini
-            
+
         val fallbackScenes = buildDefaultFallbackScenes(idea)
-        
-        if (apiKey.isEmpty() || apiKey == "YOUR_GEMINI_API_KEY") {
-            return@withContext fallbackScenes
-        }
-            
-        return@withContext NetworkUtils.safeApiCall(
-            context = AppServices.appContext,
-            fallback = { fallbackScenes }
-        ) {
-            val tasteContext = TasteManager.getTasteContext(AppServices.appContext)
-            val prompt = """
-                أنت المخرج الفني وكبير مونتيري منصة «قَبَس» (QABAS AI Studio) - المتخصص الأول في صناعة المحتوى الإسلامي والقرآني القصير فائق الجودة والانتشار (Reels/Shorts/TikTok) بهوية بصرية وروحية فاخرة (Dark Slate & Gold Aesthetic).
-                $tasteContext
-                الموضوع الأساسي: $idea
-                نوع المحتوى المطلوب: $contentType
-                النبرة العاطفية والروحية المطلوبة: $contentTone
-                التوجيهات الأسلوبية (مهم جداً): $styleDescription
-                
-                مهمتك: تحويل الفكرة إلى مشاهد سينمائية مقسمة بدقة تجذب المشاهد منذ الثانية الأولى، وتأخذ بقلبه عبر رحلة إيمانية بصرية متكاملة حتى الخاتمة.
-                
-                ثورة قبس الإخراجية (قواعد صارمة جداً):
-                1. الاستعارة البصرية (Visual Metaphors): إياك والترجمة الحرفية! إذا كان النص "يجب أن نصبر"، لا تصف رجلاً صابراً. بل صف "قطرة ندى تسقط على أرض قاحلة"، وإذا كان "التوحيد" صف "شعاع نور وحيد يخترق غيوماً داكنة". اعتمد حصرياً على الرموز الطبيعية والكونية العميقة.
-                2. إيقاع التقطيع (Pacing & Rhythm): اجعل `durationInSeconds` متغيراً حسب المشهد. الجمل السريعة/الخطافية تحتاج لقطات قصيرة (2-3 ثوانٍ) وإيقاع (سريع - Jump Cuts)، بينما الجمل التأملية تأخذ لقطات طويلة (5-7 ثوانٍ) وإيقاع (بطيء تأملي - Slow Zoom In).
-                3. التلوين السينمائي النفسي (Mood Color Grading): اجعل `visualEffect` يعكس الحالة النفسية للمشهد (مثلاً: "Cool dark teal tones for sadness/trials" أو "Warm glowing golden light for hope/mercy").
-                4. الدقة البصرية: كتابة وصف كل مشهد (description) باللغة الإنجليزية للبحث المباشر عن B-Roll (مثال: Macro shot of a single water drop hitting dry desert sand, highly detailed, slow motion).
-                
-                أخرج النتيجة حصرياً بصيغة JSON كمصفوفة من المشاهد بدون أي نصوص خارج الـ JSON. كل مشهد يحتوي على: 
-                - title: عنوان المشهد القصير باللغة العربية (عبارة السرد أو الخطاف).
-                - description: وصف بصري سينمائي دقيق بالإنجليزية لتوليد الفيديو (مثال: Cinematic slow motion shot of an open holy Quran with warm golden sun rays streaming through an archway, 8k resolution, photorealistic).
-                - durationInSeconds: مدة المشهد بالثواني (بين 3 إلى 6 ثوانٍ).
-                - transitionType: نوع الانتقال السينمائي (مثال: Smooth Dissolve, Soft Zoom In, Whip Pan, Light Fade).
-                - visualEffect: المؤثرات البصرية (مثال: Cinematic Golden Color Grading, Subtle Light Leaks, Film Grain).
-                - tempo: إيقاع المشهد (سريع، متوسط، ملحمي، هادئ).
-            """.trimIndent()
+        val tasteContext = try { TasteManager.getTasteContext(AppServices.appContext) } catch (_: Exception) { "" }
+        val prompt = """
+            أنت المخرج الفني وكبير مونتيري منصة «قَبَس» (QABAS AI Studio) - المتخصص الأول في صناعة المحتوى الإسلامي والقرآني القصير فائق الجودة والانتشار (Reels/Shorts/TikTok) بهوية بصرية وروحية فاخرة (Dark Slate & Gold Aesthetic).
+            $tasteContext
+            الموضوع الأساسي: $idea
+            نوع المحتوى المطلوب: $contentType
+            النبرة العاطفية والروحية المطلوبة: $contentTone
+            التوجيهات الأسلوبية (مهم جداً): $styleDescription
 
-            val jsonBody = JSONObject().apply {
-                put("contents", JSONArray().put(JSONObject().apply {
-                    put("parts", JSONArray().put(JSONObject().apply {
-                        put("text", prompt)
+            مهمتك: تحويل الفكرة إلى مشاهد سينمائية مقسمة بدقة تجذب المشاهد منذ الثانية الأولى، وتأخذ بقلبه عبر رحلة إيمانية بصرية متكاملة حتى الخاتمة.
+
+            ثورة قبس الإخراجية (قواعد صارمة جداً):
+            1. الاستعارة البصرية (Visual Metaphors): إياك والترجمة الحرفية! إذا كان النص "يجب أن نصبر"، لا تصف رجلاً صابراً. بل صف "قطرة ندى تسقط على أرض قاحلة"، وإذا كان "التوحيد" صف "شعاع نور وحيد يخترق غيوماً داكنة". اعتمد حصرياً على الرموز الطبيعية والكونية العميقة.
+            2. إيقاع التقطيع (Pacing & Rhythm): اجعل `durationInSeconds` متغيراً حسب المشهد. الجمل السريعة/الخطافية تحتاج لقطات قصيرة (2-3 ثوانٍ) وإيقاع (سريع - Jump Cuts)، بينما الجمل التأملية تأخذ لقطات طويلة (5-7 ثوانٍ) وإيقاع (بطيء تأملي - Slow Zoom In).
+            3. التلوين السينمائي النفسي (Mood Color Grading): اجعل `visualEffect` يعكس الحالة النفسية للمشهد (مثلاً: "Cool dark teal tones for sadness/trials" أو "Warm glowing golden light for hope/mercy").
+            4. الدقة البصرية: كتابة وصف كل مشهد (description) باللغة الإنجليزية للبحث المباشر عن B-Roll (مثال: Macro shot of a single water drop hitting dry desert sand, highly detailed, slow motion).
+
+            أخرج النتيجة حصرياً بصيغة JSON كمصفوفة من المشاهد بدون أي نصوص خارج الـ JSON. كل مشهد يحتوي على:
+            - title: عنوان المشهد القصير باللغة العربية (عبارة السرد أو الخطاف).
+            - description: وصف بصري سينمائي دقيق بالإنجليزية لتوليد الفيديو (مثال: Cinematic slow motion shot of an open holy Quran with warm golden sun rays streaming through an archway, 8k resolution, photorealistic).
+            - durationInSeconds: مدة المشهد بالثواني (بين 3 إلى 6 ثوانٍ).
+            - transitionType: نوع الانتقال السينمائي (مثال: Smooth Dissolve, Soft Zoom In, Whip Pan, Light Fade).
+            - visualEffect: المؤثرات البصرية (مثال: Cinematic Golden Color Grading, Subtle Light Leaks, Film Grain).
+            - tempo: إيقاع المشهد (سريع، متوسط، ملحمي، هادئ).
+        """.trimIndent()
+
+        // سلسلة المحركات: Gemini ← Groq ← OpenAI ← محلي — أول ناجح يُعتمد ويُعلن
+        val geminiKey = KeyVault.gemini
+        if (geminiKey.isNotEmpty() && geminiKey != "YOUR_GEMINI_API_KEY") {
+            val scenes = tryGeminiScenes(geminiKey, prompt)
+            if (scenes.size >= 2) {
+                SceneEngineMonitor.report("Gemini")
+                SystemLogsManager.addLog("DIRECTOR", "المحرك: Gemini أنتج ${scenes.size} مشاهد", androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                return@withContext scenes
+            }
+        }
+
+        val groqText = try { RealGroqService.chatOrGenerate("$prompt\n\nأخرج JSON فقط بلا أي شرح.") } catch (_: Exception) { null }
+        val groqScenes = parseScenesJson(groqText)
+        if (groqScenes.size >= 2) {
+            SceneEngineMonitor.report("Groq")
+            SystemLogsManager.addLog("DIRECTOR", "المحرك: Groq أنتج ${groqScenes.size} مشاهد", androidx.compose.ui.graphics.Color(0xFF4CAF50))
+            return@withContext groqScenes
+        }
+
+        val openaiText = try { RealOpenAIService.chatOrGenerate("$prompt\n\nأخرج JSON فقط بلا أي شرح.") } catch (_: Exception) { null }
+        val openaiScenes = parseScenesJson(openaiText)
+        if (openaiScenes.size >= 2) {
+            SceneEngineMonitor.report("OpenAI")
+            SystemLogsManager.addLog("DIRECTOR", "المحرك: OpenAI أنتج ${openaiScenes.size} مشاهد", androidx.compose.ui.graphics.Color(0xFF4CAF50))
+            return@withContext openaiScenes
+        }
+
+        SceneEngineMonitor.report("محلي")
+        SystemLogsManager.addLog("DIRECTOR", "المحرك: محلي (بلا مفاتيح صالحة) — مشاهد أساسية", androidx.compose.ui.graphics.Color(0xFFE8C547))
+        fallbackScenes
+    }
+
+    private suspend fun tryGeminiScenes(apiKey: String, prompt: String): List<Scene> {
+        return try {
+            NetworkUtils.safeApiCall(context = AppServices.appContext, fallback = { emptyList<Scene>() }) {
+                val jsonBody = JSONObject().apply {
+                    put("contents", JSONArray().put(JSONObject().apply {
+                        put("parts", JSONArray().put(JSONObject().apply { put("text", prompt) }))
                     }))
-                }))
-                put("generationConfig", JSONObject().apply {
-                    put("responseMimeType", "application/json")
-                })
-            }
-
-            val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
-                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = ApiUsageTracker.track(AppServices.appContext, "Gemini") { client.newCall(request).execute() }
-            if (response.isSuccessful) {
-                val responseBody = response.body?.string() ?: ""
-                val responseJson = JSONObject(responseBody)
-                val textResponse = extractGeminiText(responseJson) ?: return@safeApiCall fallbackScenes
-
-                // Extract JSON array from text response if it's wrapped in markdown
-                val cleanJson = if (textResponse.contains("[")) textResponse.substring(textResponse.indexOf("["), textResponse.lastIndexOf("]") + 1) else textResponse
-                val jsonArray = JSONArray(cleanJson)
-                val scenes = mutableListOf<Scene>()
-                for (i in 0 until jsonArray.length()) {
-                    val item = jsonArray.getJSONObject(i)
-                    scenes.add(
-                        Scene(
-                            title = item.optString("title", Translator.tr("مشهد ${i+1}")),
-                            description = item.optString("description", ""),
-                            durationInSeconds = item.optInt("durationInSeconds", 5),
-                            transitionType = item.optString("transitionType", "Fade"),
-                            visualEffect = item.optString("visualEffect", "cinematic"),
-                            tempo = item.optString("tempo", Translator.tr("متوسط"))
-                        )
-                    )
+                    put("generationConfig", JSONObject().apply { put("responseMimeType", "application/json") })
                 }
-                if (scenes.isNotEmpty()) scenes else fallbackScenes
-            } else {
-                fallbackScenes
+                val request = Request.Builder()
+                    .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+                val response = ApiUsageTracker.track(AppServices.appContext, "Gemini") { client.newCall(request).execute() }
+                if (!response.isSuccessful) return@safeApiCall emptyList<Scene>()
+                val responseJson = JSONObject(response.body?.string() ?: "")
+                val textResponse = extractGeminiText(responseJson) ?: return@safeApiCall emptyList<Scene>()
+                parseScenesJson(textResponse)
             }
-        }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseScenesJson(text: String?): List<Scene> {
+        if (text.isNullOrBlank() || !text.contains("[")) return emptyList()
+        return try {
+            val cleanJson = text.substring(text.indexOf("["), text.lastIndexOf("]") + 1)
+            val jsonArray = JSONArray(cleanJson)
+            val scenes = mutableListOf<Scene>()
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                scenes.add(
+                    Scene(
+                        title = item.optString("title", Translator.tr("مشهد ${i + 1}")),
+                        description = item.optString("description", ""),
+                        durationInSeconds = item.optInt("durationInSeconds", 5),
+                        transitionType = item.optString("transitionType", "Fade"),
+                        visualEffect = item.optString("visualEffect", "cinematic"),
+                        tempo = item.optString("tempo", Translator.tr("متوسط"))
+                    )
+                )
+            }
+            scenes
+        } catch (_: Exception) { emptyList() }
     }
 
         private fun buildDefaultIdeaAnalysis(idea: String): IdeaAnalysis {

@@ -91,6 +91,7 @@ fun ProcessingScreen(
 
     var showCancelDialog by remember { mutableStateOf(false) }
     var finalScenes by remember { mutableStateOf<List<Scene>>(emptyList()) }
+    val liveEngine by SceneEngineMonitor.engine.collectAsState()
 
     val doCancel = remember(onCancel) {
         {
@@ -139,6 +140,7 @@ fun ProcessingScreen(
         }
 
         try {
+            SceneEngineMonitor.reset()
             // فحص مبكر: فشل رخيص في ثوانٍ بدل دقائق ترميز
             val preflightError = ProductionPowerKit.preflight(context, inputText)
             if (preflightError != null) {
@@ -530,6 +532,7 @@ fun ProcessingScreen(
     ProcessingScreenUI(
         chosenStyleMessage = chosenStyleMessage,
         styleTraitsSummary = styleTraitsSummary,
+        engineName = liveEngine,
         progress = progress,
         statusText = statusText,
         scenesProcessed = scenesProcessed,
@@ -554,6 +557,7 @@ fun ProcessingScreen(
 private fun ProcessingScreenUI(
     chosenStyleMessage: String?,
     styleTraitsSummary: String?,
+    engineName: String = "",
     progress: Float,
     statusText: String,
     scenesProcessed: Int,
@@ -737,6 +741,27 @@ private fun ProcessingScreenUI(
                 }
             }
 
+            if (engineName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    color = if (engineName == "محلي") Color(0xFFE8C547).copy(alpha = 0.12f) else Color(0xFF10B981).copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (engineName == "محلي") Color(0xFFE8C547).copy(alpha = 0.5f) else Color(0xFF10B981).copy(alpha = 0.5f)
+                    )
+                ) {
+                    Text(
+                        if (engineName == "محلي") "المحرك: محلي — أضف مفتاحاً لجودة أعلى"
+                        else "المحرك الحي: $engineName ⚡",
+                        color = if (engineName == "محلي") Color(0xFFE8C547) else Color(0xFF10B981),
+                        fontSize = 12.sp,
+                        fontFamily = CairoFont,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+            }
             if (!chosenStyleMessage.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(

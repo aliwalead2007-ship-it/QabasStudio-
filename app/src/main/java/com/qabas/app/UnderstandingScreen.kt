@@ -556,12 +556,52 @@ fun ViralHooksSection(
         }
 
         if (hooks.isEmpty()) {
+            // مختبر الخطافات الاحتياطي: 3 خطافات محلية (سؤال/تناقض/أمر) بدل الرسالة الميتة
+            val pack = remember(analysis.summary) { HookEngine.localPack(analysis.summary.ifBlank { "هذه الآية" }) }
             Text(
-                Translator.tr("تعذّر استخراج خطافات معينة، سنكمل بالاعتماد على الفكرة الأساسية."),
+                Translator.tr("اختر أقوى افتتاحية لجذب انتباه المشاهد في أول ثانيتين:"),
                 color = TextSecondary,
                 fontFamily = NotoSansFont,
                 fontSize = 12.sp
             )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                pack.hooks.forEach { hook ->
+                    val isSelected = selectedHook == hook
+                    Surface(
+                        onClick = { onSelectHook(if (isSelected) null else hook) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) GoldPrimary.copy(alpha = 0.15f) else CardSurface,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isSelected) GoldPrimary else Color(0xFF1E293B)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { onSelectHook(if (isSelected) null else hook) },
+                                colors = RadioButtonDefaults.colors(selectedColor = GoldPrimary, unselectedColor = TextSecondary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "« $hook »",
+                                color = if (isSelected) GoldPrimary else TextPrimary,
+                                fontFamily = CairoFont,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+                Text(
+                    "🔁 الخاتمة الحلقية: ${pack.loopEnding}",
+                    color = Color(0xFF34D399),
+                    fontFamily = CairoFont,
+                    fontSize = 12.sp
+                )
+            }
         } else {
             Text(
                 Translator.tr("اختر أقوى افتتاحية لجذب انتباه المشاهد في أول 3 ثوانٍ:"),

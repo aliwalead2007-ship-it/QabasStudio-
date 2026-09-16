@@ -446,7 +446,7 @@ app/src/main/assets/audio/entry_ayah_ruj3a.m4a
 > **إزالة السبلاش + حياد الأيقونة (سبتمبر 2026):** بطلب المالك («ازله كليا») أُزيلت شاشة السبلاش كلياً — لا أثر لها في كود/موارد/ثيم (`MainActivity` يبدأ من `DATA_LOADING` بلا `installSplashScreen`، `AndroidManifest` theme ← `Theme.MyApplication`)، وحُذفت كل أصول اللوجو القديمة (`qabas_logo*.webp/xml/jpg`، `ic_qabas_*`، webps كثافات الـ launcher)، وحُيّدت أيقونة الـ launcher بمظهر ذهبي محايد (foreground neutral + fallback vector لـ API<26) وحدفت كتلة اللوجو من `LoginScreen.kt` — التحقق grep صفر. **الخطوة التالية:** استلام اللوجو الجديد (PNG ≥1024 بخلفية شفافة أو SVG) وتطبيقه في الأيقونة + لوجو شاشة التحميل `assets/logo/p*.txt`.
 > **طبقة OpenAI + الأعلام فقط (سبتمبر 2026):** خيار محادثة حقيقي عبر `gpt-4o-mini` بأولوية **OpenAI → Groq → Gemini** (بطاقة مفتاح `sk-proj-…` في شاشة المفاتيح + تحقق + نسخ احتياطي + قياس `ApiUsageTracker` + إدخال «مفاتيح API 🔑» بلوحة المطور)، و`.env.example` بـ `your_key` — القاعدة الأمنية: لا مفتاح حقيقي في كود مقتَفَع (المفتاح في `.env` المحلي أو GitHub Secret). **صلاحيات البريد أُغلقت نهائياً:** admin/قريب/مطوّر = أعلام `qabas_prefs` فقط بعد إزالة كل الأنماط (`aly750834`/`aliwalead`/`xman88371`/`admin@…`/`family@…`/`friend@…`/`peeesa7`) من AccountService/LoginScreen/AuthScreens/SettingsScreen/RequestChatScreen/LeagueService؛ `is_developer` يُكتب الآن فقط لمالك الحساب عند التسجيل/الدخول (`CloudServices.isOwnerAccount`) — لا يُمنح وضع المطور للمستخدمين العاديين، والأجهزة القديمة المخوَّلة تحتفظ بعلامتها المكتوبة. التحقق grep صفر لبقايا الأنماط.
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -466,7 +466,7 @@ bd close <id>         # Complete work
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
 
 ## Agent Context Profiles
 
@@ -523,5 +523,5 @@ bd prime                # Refresh Beads context
 - Run `bd prime` when Beads context is missing or stale. Codex 0.129.0+ can load Beads context automatically through native hooks; use `/hooks` to inspect or toggle them.
 - Keep persistent project memory in Beads via `bd remember`; do not create ad hoc memory files.
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
