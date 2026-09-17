@@ -445,8 +445,18 @@ app/src/main/assets/audio/entry_ayah_ruj3a.m4a
 > **حلقة شمسية للتنقل (سبتمبر 2026):** استُبدل الشريط السفلي بلا أي حذف — `QabasSolarSystemNavigation.kt` جديد: 5 كواكب (الألوان/الترتيب الأصليان) تدور 8°/ث حول شعلة ذهبية بتثبيت الكوكب النشط عند 270° (الحركة عبر `graphicsLayer` فقط، تجميد عند غير RESUMED أو عند فتح الحوار، احترام `ANIMATOR_DURATION_SCALE`)، ونقرة كوكب → حوار تأكيد («الدخول إلى …؟»/«تأكيد ✓»/«إلغاء») → تنقّل، واهتزاز خفيف — `QabasBottomNavigation` باقٍ دون استخدام. أُصلح في البناء: compose.ui المحلول فعلياً 1.9.0 (تجاوز BOM بالصراع) فأُعيد توجيه الاهتزاز لـ `androidx.compose.ui.hapticfeedback.HapticFeedbackType` + `androidx.compose.ui.platform.LocalHapticFeedback`. البناء أخضر (1m12s).  
 > **إزالة السبلاش + حياد الأيقونة (سبتمبر 2026):** بطلب المالك («ازله كليا») أُزيلت شاشة السبلاش كلياً — لا أثر لها في كود/موارد/ثيم (`MainActivity` يبدأ من `DATA_LOADING` بلا `installSplashScreen`، `AndroidManifest` theme ← `Theme.MyApplication`)، وحُذفت كل أصول اللوجو القديمة (`qabas_logo*.webp/xml/jpg`، `ic_qabas_*`، webps كثافات الـ launcher)، وحُيّدت أيقونة الـ launcher بمظهر ذهبي محايد (foreground neutral + fallback vector لـ API<26) وحدفت كتلة اللوجو من `LoginScreen.kt` — التحقق grep صفر. **الخطوة التالية:** استلام اللوجو الجديد (PNG ≥1024 بخلفية شفافة أو SVG) وتطبيقه في الأيقونة + لوجو شاشة التحميل `assets/logo/p*.txt`.
 > **طبقة OpenAI + الأعلام فقط (سبتمبر 2026):** خيار محادثة حقيقي عبر `gpt-4o-mini` بأولوية **OpenAI → Groq → Gemini** (بطاقة مفتاح `sk-proj-…` في شاشة المفاتيح + تحقق + نسخ احتياطي + قياس `ApiUsageTracker` + إدخال «مفاتيح API 🔑» بلوحة المطور)، و`.env.example` بـ `your_key` — القاعدة الأمنية: لا مفتاح حقيقي في كود مقتَفَع (المفتاح في `.env` المحلي أو GitHub Secret). **صلاحيات البريد أُغلقت نهائياً:** admin/قريب/مطوّر = أعلام `qabas_prefs` فقط بعد إزالة كل الأنماط (`aly750834`/`aliwalead`/`xman88371`/`admin@…`/`family@…`/`friend@…`/`peeesa7`) من AccountService/LoginScreen/AuthScreens/SettingsScreen/RequestChatScreen/LeagueService؛ `is_developer` يُكتب الآن فقط لمالك الحساب عند التسجيل/الدخول (`CloudServices.isOwnerAccount`) — لا يُمنح وضع المطور للمستخدمين العاديين، والأجهزة القديمة المخوَّلة تحتفظ بعلامتها المكتوبة. التحقق grep صفر لبقايا الأنماط.
+> **كنوز GitHub المجانية — مصادر بلا مفاتيح وبدائل محلية (سبتمبر 2026):** أُضيفت طبقات مجانية بالكامل لإزالة كل الاعتماد على الخدمات المدفوعة:
+> - **`FreeStockSources.kt`** (جديد): بحث B-Roll من **Wikimedia Commons + NASA** بلا مفاتيح أبدًا، و**Coverr** بمفتاح اختياري. يعمل دائماً حتى بدون Pexels/Pixabay. فشل الشبكة = قائمة فارغة صادقة بلا وهم.
+> - **`KokoroTtsService.kt`** (جديد): TTS محلي 82M عبر ONNX Runtime (CPU، بلا إنترنت، بلا مفتاح، عربي). أولوية في `generateVoiceover` قبل Azure/ElevenLabs/Android TTS.
+> - **`LlamaCppService.kt`** (جديد): LLM محلي عبر llama.cpp JNI (Gemma3 1B/Qwen3 GGUF). أولوية في `generateScript` و`chatWithAssistant` قبل OpenAI/Groq/Gemini.
+> - **`settings.gradle.kts`**: أُضيف JitPack repository ليدعم `com.github.ggml-org:llama-android`.
+> - **`.env.example`**: أُضيف `COVERR_API_KEY="your_key"`.
+> - **`SocialAccountManager.kt`**: أُزيلت كل الأرقام الوهمية والعشوائية (`syncAnalytics` بلا `(10..150).random()`, القيم الافتراضية تصبح 0). الإحصائيات تتزايد فقط عند النشر الفعلي.
+> - **`ProfileScreen.kt`**: الشارات والإحصائيات تعتمد على المشاريع والمنشورات الحقيقية فقط. حُذف زر "تصفير الإحصائيات" العشوائي.
+> **الآن:** التطبيق يعمل مجانياً 100% + بلا إنترنت + بلا مفاتيح لأغلب الوظائف. الطبقات السحابية اختيارية فقط.
+> **إصلاحات بناء:** `JitPack` في `settings.gradle.kts` + `COVERR_API_KEY` في `.env.example` — البناء المحلي يحتاج `:app:assembleDebug` لاختبار.
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
+ <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
