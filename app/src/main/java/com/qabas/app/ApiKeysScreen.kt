@@ -295,6 +295,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
     var geminiKey by remember { mutableStateOf(prefs.getString("gemini_key", "") ?: "") }
     var pexelsKey by remember { mutableStateOf(prefs.getString("pexels_key", "") ?: "") }
     var pixabayKey by remember { mutableStateOf(prefs.getString("pixabay_key", "") ?: "") }
+    var coverrKey by remember { mutableStateOf(prefs.getString("coverr_key", "") ?: "") }
     var huggingfaceKey by remember { mutableStateOf(prefs.getString("huggingface_key", "") ?: "") }
     var groqKey by remember { mutableStateOf(prefs.getString("groq_key", "") ?: "") }
     var azureSpeechKey by remember { mutableStateOf(prefs.getString("azure_speech_key", "") ?: "") }
@@ -1182,6 +1183,19 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 }
 
                 item {
+                    ApiKeyCard(
+                        serviceType = "coverr",
+                        title = "8. Coverr API Key (اختياري)",
+                        description = Translator.tr("مكتبة سينمائية إضافية 16:9 — مجاني 50 طلب/ساعة. Wikimedia وNASA تعملان بدونه."),
+                        url = "https://coverr.co/developers/",
+                        instructions = "1. سجل في coverr.co/developers.\n2. انسخ مفتاح Demo المجاني.\n3. الصقه هنا.",
+                        icon = Icons.Default.Movie,
+                        value = coverrKey,
+                        onValueChange = { coverrKey = it }
+                    )
+                }
+
+                item {
                     KeyGroupHeader("السحابة — تُدار خارج هذه الشاشة")
                 }
 
@@ -1213,6 +1227,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                                 .putString("groq_key", groqKey.trim())
                                 .putString("pexels_key", pexelsKey.trim())
                                 .putString("pixabay_key", pixabayKey.trim())
+                                .putString("coverr_key", coverrKey.trim())
                                 .putString("huggingface_key", huggingfaceKey.trim())
                                 .putString("azure_speech_key", azureSpeechKey.trim())
                                 .putString("azure_speech_region", azureSpeechRegion.trim())

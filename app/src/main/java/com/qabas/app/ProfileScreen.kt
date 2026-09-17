@@ -59,7 +59,7 @@ fun ProfileScreen(
         mutableIntStateOf(prefs.getInt("user_avatar_preset", 0))
     }
     
-    val userEmail = prefs.getString("user_email", "user@example.com") ?: "user@example.com"
+val userEmail = prefs.getString("user_email", "user@example.com") ?: "user@example.com"
 
     val projectService = remember { ProjectService(context) }
     var projectsCount by remember { mutableIntStateOf(0) }
@@ -91,16 +91,14 @@ fun ProfileScreen(
         socialAccounts = SocialAccountManager.getAccounts(context)
     }
 
-    val totalViews = socialAccounts.filter { it.isConnected }.sumOf { it.totalViews }
-    val totalFollowers = socialAccounts.filter { it.isConnected }.sumOf { it.followers }
-    val totalLikes = socialAccounts.filter { it.isConnected }.sumOf { it.totalLikes }
+    val totalPublished = socialAccounts.filter { it.isConnected }.sumOf { it.publishedCount }
 
-    val badges = remember(projectsCount) {
+    val badges = remember(projectsCount, totalPublished) {
         val list = mutableListOf<String>()
         if (projectsCount >= 1) list.add(Translator.tr("البداية القوية 🚀"))
         if (projectsCount >= 3) list.add(Translator.tr("صانع محتوى مبدع ✨"))
-        if (totalViews >= 10000) list.add(Translator.tr("صانع رائج 👁️"))
-        if (totalFollowers >= 5000) list.add(Translator.tr("مؤثر قدير 🌟"))
+        if (totalPublished >= 5) list.add(Translator.tr("ناشر نشط 📤"))
+        if (totalPublished >= 20) list.add(Translator.tr("مؤثر قدير 🌟"))
         if (list.isEmpty()) list.add(Translator.tr("صانع مبتدئ 🌿"))
         list
     }
@@ -119,13 +117,6 @@ fun ProfileScreen(
                 actions = {
                     IconButton(onClick = { showEditProfileDialog = true }) {
                         Icon(Icons.Default.Edit, contentDescription = "تعديل الملف", tint = GoldPrimary)
-                    }
-                    IconButton(onClick = {
-                        SocialAccountManager.resetAllStatsToZero(context)
-                        socialAccounts = SocialAccountManager.getAccounts(context)
-                        Toast.makeText(context, "تم تصفير الإحصائيات والأمثلة بنجاح 🔄", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = "تصفير", tint = GoldPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DeepSlate)
@@ -313,23 +304,23 @@ fun ProfileScreen(
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    title = Translator.tr("المشاهدات"),
-                    value = formatStatNumber(totalViews),
-                    icon = Icons.Default.Visibility,
+                    title = Translator.tr("المشاركات"),
+                    value = totalPublished.toString(),
+                    icon = Icons.Default.Publish,
                     color = Color(0xFF3B82F6)
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    title = Translator.tr("الإعجابات"),
-                    value = formatStatNumber(totalLikes),
-                    icon = Icons.Default.Favorite,
+                    title = Translator.tr("المنصات مربوطة"),
+                    value = socialAccounts.count { it.isConnected }.toString(),
+                    icon = Icons.Default.Link,
                     color = Color(0xFFE1306C)
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    title = Translator.tr("المتابعون"),
-                    value = formatStatNumber(totalFollowers),
-                    icon = Icons.Default.People,
+                    title = Translator.tr("معدل الإنجاز"),
+                    value = if (projectsCount > 0) "${(totalPublished * 100 / projectsCount).coerceAtMost(100)}%" else "0%",
+                    icon = Icons.Default.TrendingUp,
                     color = Color(0xFF10B981)
                 )
             }

@@ -53,6 +53,7 @@ object KeyVault {
     val elevenlabs: String get() = resolve("elevenlabs_key", BuildConfig.ELEVENLABS_API_KEY)
     val pexels: String get() = resolve("pexels_key", BuildConfig.PEXELS_API_KEY)
     val pixabay: String get() = resolve("pixabay_key", BuildConfig.PIXABAY_API_KEY)
+    val coverr: String get() = (prefs().getString("coverr_key", "") ?: "").trim()
 
     /** المفتاح الفعّال لأي اسم مفتاح معروف — يستخدمه الطبيب ولوحة الجاهزية لتقرير الحقيقة كاملة */
     fun effective(prefsKey: String): String = when (prefsKey) {
@@ -834,7 +835,25 @@ object RealMediaLibraryService {
                 }
             }
 
-            // 3. High-Quality Curated B-Roll Library Fallback (Instant & Free)
+            // 3. Coverr (مفتاح مجاني اختياري) ثم مصادر حرة بلا مفاتيح (Wikimedia/NASA) قبل المكتبة المحلية
+            try {
+                val ck = KeyVault.coverr
+                if (ck.isNotEmpty() && type == "video") {
+                    val free = FreeStockSources.searchCoverr(visualKeywords, ck)
+                    val u = free.firstOrNull()?.videoUrl ?: ""
+                    if (u.startsWith("http")) return@safeApiCall u
+                }
+            } catch (_: Exception) { }
+            try {
+                val free = FreeStockSources.searchFree(cleanQuery)
+                val pick = free.firstOrNull { it.videoUrl.startsWith("http") || it.thumbnailUrl.startsWith("http") }
+                if (pick != null) {
+                    val u = if (type == "video") pick.videoUrl.ifBlank { pick.thumbnailUrl } else pick.thumbnailUrl.ifBlank { pick.videoUrl }
+                    if (u.isNotBlank() && u.startsWith("http")) return@safeApiCall u
+                }
+            } catch (_: Exception) { }
+
+            // 4. High-Quality Curated B-Roll Library Fallback (Instant & Free)
             val matchedBRoll = BRollEngine.matchBRoll(cleanQuery)
             val matchedUrl = if (type == "video") matchedBRoll.videoUrl else matchedBRoll.thumbnailUrl
             if (matchedUrl.isNotBlank()) {
@@ -1422,6 +1441,20 @@ object AppServices {
                 finalStyleDescription = "العقل لم يتدرب بعد. استخدم ألواناً داكنة بهوية AI بنفسجية #8B5CF6 وإكسنت سيان #22D3EE (DeepSlate #0B0F19)، ونصوصاً عربية عريضة ديناميكية (كابشنز متفاعلة)."
             }
         }
+
+        // 1) llama.cpp محلي (مجاني، offline) للسكربت
+        val localScript = try {
+            LlamaCppService.generateScriptLocal(idea, finalStyleDescription, contentType, contentTone)
+        } catch (e: Exception) {
+            Log.w("AppServices", "Local LLM unavailable: ${e.message}")
+            null
+        }
+        if (localScript != null && localScript.isNotEmpty()) {
+            SystemLogsManager.addLog("INFO", "تم توليد السكربت بـ llama.cpp محلياً ✅", Color(0xFF10B981))
+            return localScript
+        }
+
+        // 2) السحابي: OpenAI → Groq → Gemini
         return RealGeminiService.generateScript(idea, finalStyleDescription, contentType, contentTone)
     }
 
@@ -1433,6 +1466,20 @@ object AppServices {
         messages: List<Pair<Boolean, String>>,
         customSystemInstruction: String? = null
     ): String {
+        // 1) llama.cpp محلي للمحادثات السريعة
+        if (messages.size == 1) {
+            val localResponse = try {
+                LlamaCppService.generate(messages[0].second, maxTokens = 256)
+            } catch (e: Exception) {
+                null
+            }
+            if (!localResponse.isNullOrBlank()) {
+                SystemLogsManager.addLog("INFO", "رد محلي بـ llama.cpp ✅", Color(0xFF10B981))
+                return localResponse!!
+            }
+        }
+
+        // 2) السحابي: OpenAI → Groq → Gemini
         if (messages.size == 1 && customSystemInstruction.isNullOrBlank()) {
             val openaiResponse = RealOpenAIService.chatOrGenerate(messages[0].second)
             if (!openaiResponse.isNullOrBlank()) return openaiResponse
@@ -1443,6 +1490,16 @@ object AppServices {
     }
 
     private suspend fun executeShortTaskWithFallback(prompt: String): String {
+        // 1) llama.cpp محلي للمهام القصيرة
+        val localResponse = try {
+            LlamaCppService.generate(prompt, maxTokens = 256, temperature = 0.5f)
+        } catch (e: Exception) { null }
+        if (!localResponse.isNullOrBlank()) {
+            SystemLogsManager.addLog("INFO", "مهمة قصيرة محلياً بـ llama.cpp ✅", Color(0xFF10B981))
+            return localResponse!!
+        }
+
+        // 2) السحابي: OpenAI → Groq → Gemini
         val openaiResponse = RealOpenAIService.chatOrGenerate(prompt)
         if (!openaiResponse.isNullOrBlank()) return openaiResponse
         val fastResponse = RealGroqService.chatOrGenerate(prompt)
@@ -1671,8 +1728,9 @@ object AppServices {
     }
 
     /**
-     * Real AI Voiceover synthesis using Azure Neural Speech or ElevenLabs Studio,
-     * with graceful local fallback.
+     * Real AI Voiceover synthesis — أولوية: Kokoro محلي (مجاني، بلا مفتاح، بلا نت)
+     * ثم Azure Neural Speech → ElevenLabs → Android TTS المدمج.
+     * لا محتوى مزيف أبداً — فشل صريح = null.
      */
     suspend fun generateVoiceover(
         text: String,
@@ -1685,12 +1743,24 @@ object AppServices {
     ): String? = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext null
 
+        // 1) Kokoro TTS المحلي (مجاني، 82M، CPU، عربي)
+        val kokoroPath = try {
+            KokoroTtsService.synthesizeSpeech(AppServices.appContext, text, "ar")
+        } catch (e: Exception) {
+            Log.w("AppServices", "Kokoro TTS unavailable: ${e.message}")
+            null
+        }
+        if (!kokoroPath.isNullOrBlank() && File(kokoroPath).exists() && File(kokoroPath).length() > 500) {
+            SystemLogsManager.addLog("INFO", "تم توليد الصوت بـ Kokoro محلياً ✅", Color(0xFF10B981))
+            return@withContext kokoroPath
+        }
+
+        // 2) Azure / ElevenLabs السحابية
         var generatedPath: String? = null
         if (engine.equals("ELEVENLABS", ignoreCase = true)) {
             val elevenVoiceId = if (voiceId.contains("Neural") || voiceId.isBlank()) "21m00Tcm4TlvDq8ikWAM" else voiceId
             generatedPath = RealElevenLabsService.synthesizeSpeech(text, elevenVoiceId)
         } else {
-            // Default to Azure Neural Speech
             val azureVoice = if (!voiceId.contains("Neural") && voiceId.length < 15) "ar-SA-HamedNeural" else voiceId
             generatedPath = RealAzureSpeechService.synthesizeSpeech(text, azureVoice, rate, pitch)
         }
@@ -1699,8 +1769,7 @@ object AppServices {
             return@withContext generatedPath
         }
 
-        // Fallback مجاني تماماً: محرك النطق المدمج في أندرويد (لا يحتاج مفتاح API).
-        // لا نحقن تلاوة يوسف أو مؤثرات عشوائية كتعليق صوتي — هذا محتوى خاطئ.
+        // 3) Android TTS المدمج (fallback أخير، بلا مفتاح، بلا نت)
         try {
             val systemTts = AndroidTTSService.synthesizeSpeech(text)
             if (!systemTts.isNullOrBlank() && File(systemTts).exists() && File(systemTts).length() > 500) {
@@ -1712,7 +1781,7 @@ object AppServices {
 
         SystemLogsManager.addLog(
             "WARN",
-            "تعذر توليد التعليق الصوتي (مفتاح TTS مفقود وغير متوفر محرك نظام) — المشهد سيتابع بدون تعليق صوتي",
+            "تعذر توليد التعليق الصوتي (لا مفاتيح سحابية، ولا Kokoro، ولا محرك نظام) — المشهد بدون صوت",
             Color(0xFFE8C547)
         )
         Log.w("AppServices", "generateVoiceover failed for text length=${text.length} — returning null (no fake narration)")

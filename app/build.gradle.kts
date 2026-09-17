@@ -162,6 +162,12 @@ dependencies {
   implementation(libs.billing.ktx)
   implementation(libs.opencv)
 
+  // ONNX Runtime for Kokoro TTS
+  implementation(libs.onnx.runtime.android)
+
+  // llama.cpp for local LLM
+  implementation(libs.llama.cpp.android)
+
   implementation(platform(libs.supabase.bom))
   implementation(libs.supabase.postgrest)
   implementation(libs.supabase.auth)

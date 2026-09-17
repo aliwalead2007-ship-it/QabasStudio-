@@ -178,6 +178,19 @@ class VideoEngineManager(private val context: Context) {
                         }
                     }
 
+                    // Priority 1b: مصادر حرة بلا مفاتيح (Wikimedia/NASA)
+                    if (mediaToUse.isNullOrBlank()) {
+                        try {
+                            val query = "${scene.title} ${scene.description}".trim()
+                            val free = FreeStockSources.searchFree(query)
+                            val pick = free.firstOrNull { it.videoUrl.startsWith("http") }
+                            if (pick != null && pick.videoUrl.isNotBlank()) {
+                                mediaToUse = pick.videoUrl
+                                SystemLogsManager.addLog("INFO", "وسائط حرة بلا مفتاح للمشهد ${index + 1} 🌍", Color(0xFF4CAF50))
+                            }
+                        } catch (_: Exception) { }
+                    }
+
                     // Priority 2: Local curated B-Roll library
                     if (mediaToUse.isNullOrBlank()) {
                         val queryText = "${scene.title} ${scene.description}"

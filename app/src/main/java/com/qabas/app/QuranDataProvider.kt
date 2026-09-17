@@ -103,6 +103,35 @@ object QuranDataProvider {
     fun getTafsirForVerse(surahId: Int, ayah: Int): String? =
         tafsirMap?.get("$surahId:$ayah")
 
+    private val remoteTafsirCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** ملاذ شبكي صادق: تفسير الميسر عربي من spa5k/tafsir_api عبر CDN (بلا مفتاح). null عند الفشل */
+    suspend fun fetchRemoteTafsir(surahId: Int, ayah: Int): String? {
+        val key = "$surahId:$ayah"
+        tafsirMap?.get(key)?.let { return it }
+        remoteTafsirCache[key]?.let { return it }
+        return try {
+            val url = "https://cdn.jsdelivr.net/gh/spa5k/tafsir_api@main/tafsir/ar-muyassar/$surahId/$ayah.json"
+            val req = okhttp3.Request.Builder().url(url).build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build()
+            val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                client.newCall(req).execute().use { it.body?.string() ?: "" }
+            }
+            if (body.isBlank()) return null
+            val root = JSONObject(body)
+            val text = root.optString("text", root.optString("tafsir", ""))
+            if (text.isBlank()) null else {
+                remoteTafsirCache[key] = text
+                val mutable = (tafsirMap ?: emptyMap()).toMutableMap()
+                mutable[key] = text
+                tafsirMap = mutable
+                text
+            }
+        } catch (_: Exception) { null }
+    }
+
     /**
      * دالة تحميل آمنة من assets للقرآن الكريم كاملاً بالرسم العثماني.
      * تفحص المسارات المحتملة: "quran/uthmani.json" ثم "quran/quran.json"

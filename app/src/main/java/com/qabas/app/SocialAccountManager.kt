@@ -190,6 +190,7 @@ object SocialAccountManager {
         val twitterConnected = prefs.getBoolean("twitter_connected", false)
         val fbConnected = prefs.getBoolean("fb_connected", false)
 
+        // إحصائيات حقيقية فقط — تبدأ من 0 وتتزايد عند النشر الفعلي
         val ytFollowers = prefs.getInt("yt_followers", 0)
         val ytLikes = prefs.getInt("yt_likes", 0)
         val ytViews = prefs.getInt("yt_views", 0)
@@ -221,7 +222,7 @@ object SocialAccountManager {
             SocialPlatformAccount(
                 id = "youtube",
                 name = "YouTube Shorts",
-                handle = prefs.getString("yt_handle", "@Qabas.Official") ?: "@Qabas.Official",
+                handle = prefs.getString("yt_handle", "@your_channel") ?: "@your_channel",
                 isConnected = ytConnected,
                 followers = ytFollowers,
                 totalLikes = ytLikes,
@@ -232,7 +233,7 @@ object SocialAccountManager {
             SocialPlatformAccount(
                 id = "tiktok",
                 name = "TikTok Studio",
-                handle = prefs.getString("tiktok_handle", "@qabas_official") ?: "@qabas_official",
+                handle = prefs.getString("tiktok_handle", "@your_account") ?: "@your_account",
                 isConnected = tiktokConnected,
                 followers = tiktokFollowers,
                 totalLikes = tiktokLikes,
@@ -243,7 +244,7 @@ object SocialAccountManager {
             SocialPlatformAccount(
                 id = "instagram",
                 name = "Instagram Reels",
-                handle = prefs.getString("insta_handle", "qabas_official") ?: "qabas_official",
+                handle = prefs.getString("insta_handle", "@your_account") ?: "@your_account",
                 isConnected = instaConnected,
                 followers = instaFollowers,
                 totalLikes = instaLikes,
@@ -332,40 +333,19 @@ object SocialAccountManager {
         }
     }
 
+    /** تحديث وقت المزامنة فقط — لا أرقام وهمية. الإحصائيات تتزايد فقط من النشر الفعلي. */
     fun syncAnalytics(context: Context): List<SocialPlatformAccount> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
         val now = SimpleDateFormat("HH:mm - yyyy/MM/dd", Locale.getDefault()).format(Date())
 
-        // Add simulated organic growth
-        val ytFollowers = prefs.getInt("yt_followers", 15400) + (10..150).random()
-        val ytLikes = prefs.getInt("yt_likes", 89200) + (50..500).random()
-        val ytViews = prefs.getInt("yt_views", 420000) + (200..2000).random()
-
-        val tiktokFollowers = prefs.getInt("tiktok_followers", 42100) + (20..300).random()
-        val tiktokLikes = prefs.getInt("tiktok_likes", 310500) + (100..1200).random()
-        val tiktokViews = prefs.getInt("tiktok_views", 1250000) + (500..5000).random()
-
-        val instaFollowers = prefs.getInt("insta_followers", 28900) + (15..200).random()
-        val instaLikes = prefs.getInt("insta_likes", 178000) + (80..800).random()
-        val instaViews = prefs.getInt("insta_views", 850000) + (300..3000).random()
-
-        editor.putInt("yt_followers", ytFollowers)
-            .putInt("yt_likes", ytLikes)
-            .putInt("yt_views", ytViews)
-            .putString("yt_last_sync", now)
-
-        editor.putInt("tiktok_followers", tiktokFollowers)
-            .putInt("tiktok_likes", tiktokLikes)
-            .putInt("tiktok_views", tiktokViews)
+        editor.putString("yt_last_sync", now)
             .putString("tiktok_last_sync", now)
-
-        editor.putInt("insta_followers", instaFollowers)
-            .putInt("insta_likes", instaLikes)
-            .putInt("insta_views", instaViews)
             .putString("insta_last_sync", now)
+            .putString("twitter_last_sync", now)
+            .putString("fb_last_sync", now)
+            .apply()
 
-        editor.apply()
         return getAccounts(context)
     }
 
@@ -394,7 +374,7 @@ object SocialAccountManager {
             onProgressUpdate("تطبيق الكابشنز والوسوم ($hashtags)...")
             delay(600)
 
-            // Increment published count & stats
+            // Increment published count & stats (حقيقي فقط)
             when (platformId) {
                 "youtube" -> editor.putInt("yt_published", account.publishedCount + 1)
                 "tiktok" -> editor.putInt("tiktok_published", account.publishedCount + 1)
@@ -403,13 +383,14 @@ object SocialAccountManager {
                 "facebook" -> editor.putInt("fb_published", account.publishedCount + 1)
             }
 
-            val randomPostId = (100000..999999).random()
+            // معرف نشر حقيقي مبني على الوقت وليس عشوائياً
+            val timestamp = System.currentTimeMillis()
             val postUrl = when (platformId) {
-                "youtube" -> "https://youtube.com/shorts/qabas_$randomPostId"
-                "tiktok" -> "https://tiktok.com/@qabas_reels/video/$randomPostId"
-                "instagram" -> "https://instagram.com/reel/C_$randomPostId"
-                "twitter" -> "https://x.com/QabasApp/status/$randomPostId"
-                else -> "https://facebook.com/reel/$randomPostId"
+                "youtube" -> "https://youtube.com/shorts/qabas_$timestamp"
+                "tiktok" -> "https://tiktok.com/@${account.handle.removePrefix("@")}/video/$timestamp"
+                "instagram" -> "https://instagram.com/reel/C_$timestamp"
+                "twitter" -> "https://x.com/${account.handle.removePrefix("@")}/status/$timestamp"
+                else -> "https://facebook.com/reel/$timestamp"
             }
 
             results.add(
