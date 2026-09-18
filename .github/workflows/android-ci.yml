@@ -182,7 +182,7 @@ jobs:
 
           if [ -n "$COMMITS_SINCE_TAG" ]; then
             RELEASE_NOTES="$RELEASE_NOTES
-التغييرات:
+            التغييرات:
 $COMMITS_SINCE_TAG"
           fi
 
