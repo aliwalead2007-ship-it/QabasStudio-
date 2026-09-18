@@ -110,7 +110,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # ── Delta Patch: ملف صغير بدل APK كامل ──
+      # ── Delta Patch: ملف صغير بدل APK كامل (إصلاح سبتمبر 2026) ──
       - name: Generate delta patch & publish release
         if: success() && github.event_name == 'push'
         env:
@@ -121,51 +121,81 @@ jobs:
           VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           VERSION_CODE="${{ github.run_number }}"
           APK_SIZE=$(du -h "$NEW_APK" | cut -f1)
+          APK_BYTES=$(stat -c%s "$NEW_APK")
           TAG="v${VERSION}+${{ github.run_number }}"
+          IS_DELTA="false"
+          PATCH_FILE="/tmp/qabas-${VERSION_CODE}.delta"
 
-          echo "APK: $NEW_APK ($APK_SIZE) | Version: $VERSION ($VERSION_CODE) | Tag: $TAG"
+          echo "═══════════════════════════════════════"
+          echo "APK: $NEW_APK ($APK_SIZE / $APK_BYTES bytes)"
+          echo "Version: $VERSION | Code: $VERSION_CODE | Tag: $TAG"
+          echo "═══════════════════════════════════════"
 
           # ── حمّل آخر APK من GitHub Releases ──
-          PREV_APK="/tmp/prev.apk"
-          PATCH_FILE="/tmp/qabas-${VERSION}.delta"
-
+          mkdir -p /tmp/prev_release
           LAST_RELEASE=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
           echo "Last release: ${LAST_RELEASE:-none}"
 
-          if [ -n "$LAST_RELEASE" ] && [ "$LAST_RELEASE" != "null" ]; then
+          if [ -n "$LAST_RELEASE" ] && [ "$LAST_RELEASE" != "null" ] && [ "$LAST_RELEASE" != "" ]; then
             echo "Downloading previous APK from $LAST_RELEASE..."
-            gh release download "$LAST_RELEASE" \
-              --pattern "*.apk" \
-              --cwd /tmp \
-              --skip-existing 2>/dev/null || true
+            if gh release download "$LAST_RELEASE" \
+                --pattern "*.apk" \
+                --dir /tmp/prev_release \
+                --clobber 2>&1; then
 
-            PREV_APK=$(ls /tmp/*.apk 2>/dev/null | head -1 || echo "")
+              PREV_APK=$(find /tmp/prev_release -name "*.apk" -type f | head -1 || echo "")
 
-            if [ -n "$PREV_APK" ] && [ -f "$PREV_APK" ]; then
-              echo "Previous APK found: $PREV_APK"
+              if [ -n "$PREV_APK" ] && [ -f "$PREV_APK" ]; then
+                PREV_BYTES=$(stat -c%s "$PREV_APK")
+                echo "Previous APK found: $PREV_APK ($PREV_BYTES bytes)"
 
-              # ثبّت xdelta3
-              sudo apt-get update -qq && sudo apt-get install -y -qq xdelta3 2>/dev/null
+                # ثبّت xdelta3
+                echo "Installing xdelta3..."
+                sudo apt-get update -qq
+                sudo apt-get install -y -qq xdelta3
+                xdelta3 -V 2>&1 || true
 
-              # أنشئ ملف الفرق
-              xdelta3 -e -s "$PREV_APK" "$NEW_APK" "$PATCH_FILE" || true
+                # أنشئ ملف الفرق
+                # -e = encode | -s = source | -B = نافذة المصدر 256MB | -9 = أقصى ضغط
+                echo "Creating delta patch (this may take 1-3 minutes)..."
+                set +e
+                xdelta3 -e -9 -B 268435456 -s "$PREV_APK" "$NEW_APK" "$PATCH_FILE" 2>&1
+                XDELTA_EXIT=$?
+                set -e
 
-              if [ -f "$PATCH_FILE" ] && [ -s "$PATCH_FILE" ]; then
-                PATCH_SIZE=$(du -h "$PATCH_FILE" | cut -f1)
-                echo "Delta patch created: $PATCH_SIZE (vs full APK: $APK_SIZE)"
-                IS_DELTA="true"
+                if [ $XDELTA_EXIT -eq 0 ] && [ -f "$PATCH_FILE" ] && [ -s "$PATCH_FILE" ]; then
+                  PATCH_BYTES=$(stat -c%s "$PATCH_FILE")
+                  PATCH_SIZE=$(du -h "$PATCH_FILE" | cut -f1)
+
+                  # ارفع الـ Delta فقط إذا كان أصغر من 70% من حجم الـ APK
+                  THRESHOLD=$(( APK_BYTES * 70 / 100 ))
+                  if [ "$PATCH_BYTES" -lt "$THRESHOLD" ]; then
+                    echo "✅ Delta patch created successfully: $PATCH_SIZE ($PATCH_BYTES bytes)"
+                    echo "   Savings: $(( (APK_BYTES - PATCH_BYTES) * 100 / APK_BYTES ))% smaller than full APK"
+                    IS_DELTA="true"
+                  else
+                    echo "⚠️ Delta too large ($PATCH_SIZE >= 70% of APK) — skipping delta upload"
+                    rm -f "$PATCH_FILE"
+                    IS_DELTA="false"
+                  fi
+                else
+                  echo "❌ xdelta3 failed (exit code: $XDELTA_EXIT)"
+                  echo "   Will upload full APK only"
+                  ls -la /tmp/qabas-*.delta 2>/dev/null || true
+                  IS_DELTA="false"
+                fi
+
+                rm -f "$PREV_APK"
               else
-                echo "Delta creation failed — uploading full APK only"
+                echo "⚠️ No previous APK found after download — uploading full APK only"
                 IS_DELTA="false"
               fi
-
-              rm -f "$PREV_APK"
             else
-              echo "No previous APK found — uploading full APK"
+              echo "⚠️ Failed to download previous release — uploading full APK only"
               IS_DELTA="false"
             fi
           else
-            echo "No previous releases — uploading full APK"
+            echo "ℹ️ No previous releases — uploading full APK only (first release)"
             IS_DELTA="false"
           fi
 
@@ -182,14 +212,14 @@ jobs:
 
           if [ -n "$COMMITS_SINCE_TAG" ]; then
             RELEASE_NOTES="$RELEASE_NOTES
-            التغييرات:
-            $COMMITS_SINCE_TAG"
+التغييرات:
+$COMMITS_SINCE_TAG"
           fi
 
-          # احذف Release cũ بنفس الـ tag لو موجود
+          # احذف Release قديم بنفس الـ tag لو موجود
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
 
-          # أنشئ Release جديد
+          # أنشئ Release جديد مع الـ APK
           gh release create "$TAG" \
             --title "Qabas $VERSION" \
             --notes "$RELEASE_NOTES" \
@@ -199,9 +229,12 @@ jobs:
           if [ "$IS_DELTA" = "true" ] && [ -f "$PATCH_FILE" ]; then
             gh release upload "$TAG" "$PATCH_FILE" --clobber
             echo "✅ Delta patch uploaded alongside full APK"
+          else
+            echo "ℹ️ No delta uploaded (full APK only)"
           fi
 
           echo "✅ Release published: $TAG"
+          echo "   IS_DELTA=$IS_DELTA"
 
       - name: On failure — print Kotlin errors hint
         if: failure()
