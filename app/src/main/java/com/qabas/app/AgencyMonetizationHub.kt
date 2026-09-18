@@ -366,7 +366,7 @@ fun AgencyMonetizationHub(context: Context) {
                 ) {
                     Text("قائمة العقود والعملاء النشطين", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     val totalMonthlyIncome = clientsList.sumOf { it.monthlyAmount }
-                    Text("الدخل الحالي: $$totalMonthlyIncome", color = Color(0xFF10B981), fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("الدخل الحالي: $${totalMonthlyIncome}", color = Color(0xFF10B981), fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 

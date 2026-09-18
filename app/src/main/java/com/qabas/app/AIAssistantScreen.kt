@@ -152,6 +152,21 @@ fun AIAssistantScreen(
     var selectedSuggestionCategory by remember { mutableStateOf(suggestionCategories[0].id) }
     var selectedPresetIndex by remember { mutableIntStateOf(0) }
     val currentPreset = presets[selectedPresetIndex]
+    // نموذج OpenRouter المختار (null = تلقائي) — يظهر فقط عند وجود المفتاح
+    var selectedOrModel by remember { mutableStateOf<String?>(null) }
+    val hasOrKey = remember {
+        val k = prefs.getString("openrouter_key", "") ?: ""
+        k.isNotBlank()
+    }
+    // وضع الأدوات 🛠️ — النموذج ينفذ دوال حقيقية بدل التخمين (مفعّل افتراضياً مع المفتاح)
+    var toolsMode by remember(hasOrKey) { mutableStateOf(hasOrKey) }
+    val orModelLabels = remember {
+        mapOf(
+            "meta-llama/llama-3.3-70b-instruct:free" to "🦙 Llama 3.3",
+            "google/gemma-3-27b-it:free" to "💎 Gemma 3",
+            "qwen/qwen3-32b:free" to "🌊 Qwen 3"
+        )
+    }
     var customInstructionText by remember { mutableStateOf("") }
 
     val messages = remember {
@@ -202,7 +217,22 @@ fun AIAssistantScreen(
                 }
 
                 val contextHistory = messages.takeLast(10).map { Pair(it.first, it.second) }
-                val response = AppServices.chatWithAssistant(contextHistory, fullSystemInstruction)
+                val orKey = prefs.getString("openrouter_key", "") ?: ""
+                val response = if (toolsMode && orKey.isNotBlank()) {
+                    // وضع الأدوات: النموذج يستدعي دوال التطبيق الحقيقية
+                    val (text, used) = OpenRouterService.chatWithTools(
+                        orKey, fullSystemInstruction, contextHistory,
+                        AiTools.definitions(context), selectedOrModel
+                    )
+                    val finalText = text.ifBlank { "تعذر التنفيذ بالأدوات — أُعيد التوجيه للمسار العادي." }
+                    if (text.isBlank()) {
+                        AppServices.chatWithAssistant(contextHistory, fullSystemInstruction, selectedOrModel)
+                    } else if (used.isNotEmpty()) {
+                        "🛠️ استخدمت: ${used.joinToString("، ")}\n\n$finalText"
+                    } else finalText
+                } else {
+                    AppServices.chatWithAssistant(contextHistory, fullSystemInstruction, selectedOrModel)
+                }
                 isTyping = false
                 messages.add(Pair(true, response))
             } catch (e: Exception) {
@@ -365,6 +395,60 @@ fun AIAssistantScreen(
                         ),
                         shape = RoundedCornerShape(20.dp)
                     )
+                }
+            }
+
+            // 1.5 OpenRouter model picker — يظهر فقط عند وجود مفتاح openrouter_key
+            if (hasOrKey) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = toolsMode,
+                            onClick = { toolsMode = !toolsMode },
+                            label = { Text("🛠️ أدوات حقيقية", fontFamily = CairoFont, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GoldPrimary,
+                                selectedLabelColor = DeepSlate,
+                                containerColor = Color(0xFF151B2B),
+                                labelColor = TextSecondary
+                            ),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    }
+                        FilterChip(
+                            selected = selectedOrModel == null,
+                            onClick = { selectedOrModel = null },
+                            label = { Text("⚡ تلقائي", fontFamily = CairoFont, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF10B981),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0xFF151B2B),
+                                labelColor = TextSecondary
+                            ),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    }
+                    items(
+                        count = orModelLabels.size,
+                        key = { i -> orModelLabels.keys.elementAt(i) }
+                    ) { i ->
+                        val modelId = orModelLabels.keys.elementAt(i)
+                        FilterChip(
+                            selected = selectedOrModel == modelId,
+                            onClick = { selectedOrModel = if (selectedOrModel == modelId) null else modelId },
+                            label = { Text(orModelLabels[modelId] ?: modelId, fontFamily = CairoFont, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF10B981),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0xFF151B2B),
+                                labelColor = TextSecondary
+                            ),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    }
                 }
             }
 

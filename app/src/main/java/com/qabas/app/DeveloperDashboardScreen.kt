@@ -52,7 +52,7 @@ enum class DashboardSection {
     MAIN, REQUESTS, SYSTEM_CONTROLS, NOTIFICATIONS, USERS, STATS,
     ACCOUNT_SETTINGS, MONEY_CENTER, DEV_STUDIO_SIGNATURE,
     STYLE_BRAIN,
-    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, BUILD_CENTER, HEALTH_CENTER
+    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, BUILD_CENTER, HEALTH_CENTER, AGENT_ROOM, CONNECTORS
 }
 
 data class DevUser(
@@ -110,8 +110,18 @@ object DevDashboardFormatters {
 fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = {}, onNavigateTo: (AppState) -> Unit = {}) {
     var currentSection by remember { mutableStateOf(DashboardSection.MAIN) }
 
-    // حارس الوصول: اللوحة للمالك فقط (لا يُمنح علم is_developer افتراضياً لأجهزة جديدة)
+    // قفزة قادمة من شاشة المحادثة (شريط الإجراءات الذكي): انتقال مباشر للقسم المطلوب
     val gateContext = LocalContext.current
+    LaunchedEffect(Unit) {
+        val target = gateContext.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+            .getString("dev_dash_target", null)
+        if (target != null) {
+            runCatching { currentSection = DashboardSection.valueOf(target) }
+            gateContext.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+                .edit().remove("dev_dash_target").apply()
+        }
+    }
+    // حارس الوصول: اللوحة للمالك فقط (لا يُمنح علم is_developer افتراضياً لأجهزة جديدة)
     val accessAllowed = remember { AdminGuard.isDashboardAccessAllowed(gateContext) }
     if (!accessAllowed) {
         Column(
@@ -157,6 +167,8 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             DashboardSection.USERS -> "إدارة الحسابات"
                             DashboardSection.STATS -> "مركز الإحصائيات 📊"
                             DashboardSection.HEALTH_CENTER -> "مركز الصحة 🩺"
+                            DashboardSection.AGENT_ROOM -> "غرفة الوكيل 🤖"
+                            DashboardSection.CONNECTORS -> "الموصلات 🔌"
                             DashboardSection.ACCOUNT_SETTINGS -> "إعدادات حساب المطور"
                             DashboardSection.MONEY_CENTER -> "مركز المال 💰"
                             DashboardSection.AUDIT_LOG -> "سجل التدقيق"
@@ -295,6 +307,8 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             currentSection = DashboardSection.STATS 
                         },
                         onHealthCenter = { currentSection = DashboardSection.HEALTH_CENTER },
+                        onAgentRoom = { currentSection = DashboardSection.AGENT_ROOM },
+                        onConnectors = { currentSection = DashboardSection.CONNECTORS },
                         onAccountSettings = { currentSection = DashboardSection.ACCOUNT_SETTINGS },
                         onMoneyCenter = { currentSection = DashboardSection.MONEY_CENTER },
                         onDevStudioSignature = { currentSection = DashboardSection.DEV_STUDIO_SIGNATURE },
@@ -309,6 +323,19 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 }
                 DashboardSection.HEALTH_CENTER -> {
                     HealthCenterSection(devLogs = devLogs)
+                }
+                DashboardSection.AGENT_ROOM -> {
+                    AgentRoomSection(
+                        onJumpBuildCenter = { currentSection = DashboardSection.BUILD_CENTER },
+                        onJumpKeys = { currentSection = DashboardSection.API_KEYS }
+                    )
+                }
+                DashboardSection.CONNECTORS -> {
+                    ConnectorsSection(
+                        onJumpBuildCenter = { currentSection = DashboardSection.BUILD_CENTER },
+                        onJumpKeys = { currentSection = DashboardSection.API_KEYS },
+                        onJumpHealth = { currentSection = DashboardSection.HEALTH_CENTER }
+                    )
                 }
                 DashboardSection.STYLE_BRAIN -> {
                     StyleBrainSection(context = context)
@@ -370,6 +397,8 @@ fun DashboardMainGrid(
     onUsers: () -> Unit,
     onStats: () -> Unit,
     onHealthCenter: () -> Unit,
+    onAgentRoom: () -> Unit,
+    onConnectors: () -> Unit,
     onAccountSettings: () -> Unit,
     onMoneyCenter: () -> Unit,
     onDevStudioSignature: () -> Unit,
@@ -503,6 +532,8 @@ fun DashboardMainGrid(
         val Amber = Color(0xFFE8C547)
         val items = listOf(
             Quad("مركز الصحة 🩺", Icons.Default.MedicalServices, Gold, onHealthCenter, "الصحة والتشخيص"),
+            Quad("غرفة الوكيل 🤖", Icons.Default.SmartToy, Violet, onAgentRoom, "الإنتاج والمحتوى"),
+            Quad("الموصلات 🔌", Icons.Default.Cable, Cyan, onConnectors, "النظام والإعدادات"),
             Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain, "الإنتاج والمحتوى"),
             Quad("ملتقط مشاكل الإنتاج", Icons.Default.BugReport, Gold, onProductionPipeline, "الإنتاج والمحتوى"),
             Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature, "الإنتاج والمحتوى"),

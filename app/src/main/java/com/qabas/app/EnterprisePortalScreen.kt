@@ -425,7 +425,7 @@ fun EnterprisePortalScreen(
                                         ========================================
                                         المُستفيد: $invoiceClientName
                                         بند الخدمة: $invoiceServiceType
-                                        المبلغ الإجمالي: $$invoiceAmountUsd دولار أمريكي
+                                        المبلغ الإجمالي: $${invoiceAmountUsd} دولار أمريكي
                                         
                                         الميزات المضمنة:
                                         • تطبيق أندرويد مخصص White-Label بالهوية الذهبية

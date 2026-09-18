@@ -306,6 +306,29 @@ class GitHubRepoClient(
         }
     }
 
+    /** اسم مستخدم صاحب الرمز (للتحقق من صلاحيته) — null عند الفشل. */
+    suspend fun getAuthUser(): String? = withContext(Dispatchers.IO) {
+        try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val req = Request.Builder()
+                .url("https://api.github.com/user")
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "Qabas-Studio")
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(req).execute().use {
+                if (!it.isSuccessful) return@withContext null
+                JSONObject(it.body?.string().orEmpty()).optString("login").takeIf { l -> l.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** الفرع الافتراضي الحقيقي للمستودع (main أو master) — لا تفترض main أبداً. */
     suspend fun getDefaultBranch(): String {
         val path = "/repos/$owner/$repo"

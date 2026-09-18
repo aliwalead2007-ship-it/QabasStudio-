@@ -166,7 +166,7 @@ class MainActivity : ComponentActivity() {
                                             NotificationHelper.showNotification(
                                                 this@MainActivity,
                                                 "مبيعة جديدة! 💰",
-                                                "تم بيع $productId بقيمة $$price"
+                                                "تم بيع $productId بقيمة $${price}"
                                             )
                                         }
                                         lastTransactionCount = transactions.size

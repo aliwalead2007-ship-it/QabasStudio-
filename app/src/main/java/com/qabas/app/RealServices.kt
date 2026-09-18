@@ -1487,7 +1487,8 @@ object AppServices {
     }
     suspend fun chatWithAssistant(
         messages: List<Pair<Boolean, String>>,
-        customSystemInstruction: String? = null
+        customSystemInstruction: String? = null,
+        preferredOpenRouterModel: String? = null
     ): String {
         // 1) Pollinations — نموذج نصي بلا مفتاح (يُجرَّب أولاً)
         if (messages.size == 1) {
@@ -1508,6 +1509,19 @@ object AppServices {
             if (!localResponse.isNullOrBlank()) {
                 SystemLogsManager.addLog("INFO", "رد محلي بـ llama.cpp ✅", Color(0xFF10B981))
                 return localResponse!!
+            }
+        }
+
+        // 3) OpenRouter بمفتاحك (نماذج مجانية قوية + اختيار النموذج)
+        val orKey = KeyVault.openrouter
+        if (orKey.isNotBlank()) {
+            val system = customSystemInstruction ?: TasteManager.getTasteContext(AppServices.appContext)
+            val orResponse = try {
+                OpenRouterService.chatWithHistory(orKey, system, messages, preferredOpenRouterModel)
+            } catch (e: Exception) { null }
+            if (!orResponse.isNullOrBlank()) {
+                SystemLogsManager.addLog("INFO", "رد محادثة بـ OpenRouter ✅", Color(0xFF10B981))
+                return orResponse
             }
         }
 

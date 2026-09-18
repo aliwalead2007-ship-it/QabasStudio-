@@ -3,6 +3,7 @@ package com.qabas.app
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -240,13 +241,15 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                     if (req.progress < 80) {
                         AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 80)
                     }
-                    AppRequestService.sendMessage(
-                        context,
-                        AppRequestService.ChatMessage(
-                            requestId = req.id, senderEmail = "dev", isDeveloper = true,
-                            message = "بدأ بناء نسختك الأولى 🏗️ — ستصلك فور جاهزيتها للاختبار."
+                    if (!reqPrefs.getBoolean("silent_${req.id}", false)) {
+                        AppRequestService.sendMessage(
+                            context,
+                            AppRequestService.ChatMessage(
+                                requestId = req.id, senderEmail = "dev", isDeveloper = true,
+                                message = "بدأ بناء نسختك الأولى 🏗️ — ستصلك فور جاهزيتها للاختبار."
+                            )
                         )
-                    )
+                    }
                 }
                 kotlinx.coroutines.delay(15000)
                 refreshAll()
@@ -580,22 +583,43 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                             Text("إنهاء", color = TextSecondary, fontFamily = CairoFont, fontSize = 11.sp)
                         }
                     }
+                    // الوضع الصامت 🔇: يعمل الوكيل دون أي رسالة للعميل (تُكسر عند التسليم)
+                    fun isSilentNow(): Boolean =
+                        reqPrefs.getBoolean("silent_${req.id}", false)
+                    var silentMode by remember(req.id) { mutableStateOf(isSilentNow()) }
+                    if (silentMode) {
+                        Surface(
+                            color = Color(0xFF1F2C34), shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                reqPrefs.edit().putBoolean("silent_${req.id}", false).apply()
+                                silentMode = false
+                            }
+                        ) {
+                            Text(
+                                "🔇 وضع صامت — لا رسائل للعميل (اضغط لإلغائه)",
+                                color = TextSecondary, fontFamily = CairoFont, fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            )
+                        }
+                    }
                     // ── 1) التسعير أولاً: لا عمل مجاني دون انتباه ──
                     val reqPrefs = context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
                     // السعر محسوم فقط بقبول العميل (أو مجاني معتمد) — العرض وحده لا يفتح التوليد
                     fun isPricedNow(): Boolean {
                         val fresh = AppRequestService.getActiveBuildRequest(context)
                         return reqPrefs.getBoolean("priced_${req.id}", false) || fresh?.priceStatus == "accepted"
-                    }
-                    var priced by remember(req.id) { mutableStateOf(isPricedNow()) }
+                    }                    var priced by remember(req.id) { mutableStateOf(isPricedNow()) }
                     var showPriceDialog by remember { mutableStateOf(false) }
                     var priceDraft by remember(req.id) { mutableStateOf(if (req.cost > 0) req.cost.toString() else "") }
                     if (!priced) {
                         var checkTick by remember { mutableStateOf(0) }
+                        var liveStatus by remember(req.id) { mutableStateOf(req.priceStatus) }
                         // انتظار قبول العميل: فحص كل 3 ثوانٍ حتى يقبل (لا توليد قبلها)
                         LaunchedEffect(checkTick) {
                             while (!isPricedNow()) {
                                 kotlinx.coroutines.delay(3000)
+                                liveStatus = AppRequestService.getActiveBuildRequest(context)?.priceStatus ?: liveStatus
                             }
                             priced = true
                         }
@@ -606,7 +630,7 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                if (req.priceStatus == "rejected") "🔁 العميل رفض — اعرض سعراً جديداً"
+                                if (liveStatus == "rejected") "🔁 العميل رفض — اعرض سعراً جديداً"
                                 else "💰 تحديد سعر الطلب أولاً",
                                 color = Color.Black, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
                             )
@@ -643,7 +667,7 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                         if (free) {
                                             reqPrefs.edit().putBoolean("priced_${req.id}", true).apply()
                                         }
-                                        AuditLogger.log(context, "request_priced", "${req.title}: $$amount (${if (free) "مقبول-مجاني" else "معروض"})")
+                                        AuditLogger.log(context, "request_priced", "${req.title}: $${amount} (${if (free) "مقبول-مجاني" else "معروض"})")
                                         priced = free || reqPrefs.getBoolean("priced_${req.id}", false)
                                         showPriceDialog = false
                                         AppRequestService.sendMessage(
@@ -653,7 +677,7 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                                 senderEmail = "dev",
                                                 isDeveloper = true,
                                                 message = if (free) "تم قبول طلبك ✅ (مجاناً). بدأنا العمل على تطبيقك."
-                                                else "عرض سعر 📋: تكلفة تطبيقك $$amount. افتح تفاصيل الطلب للقبول أو الرفض — لن نبدأ قبل موافقتك."
+                                                else "عرض سعر 📋: تكلفة تطبيقك $${amount}. افتح تفاصيل الطلب للقبول أو الرفض — لن نبدأ قبل موافقتك."
                                             )
                                         )
                                         activeReq.value = AppRequestService.getActiveBuildRequest(context)
@@ -690,17 +714,22 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                             scaffolding = true
                             scaffoldMsg = null
                             scope.launch {
-                                val plan = req.generatedPrompts?.takeIf { it.isNotBlank() }
-                                    ?: LocalPromptPlanner.generatePlan(req)
-                                val files = OpenRouterService.generateStarterFiles(req, plan, orKey)
+                                // طلب طازج — نسخة البانر قد تسبق توليد الخطة فتفوّتها
+                                val live = AppRequestService.getActiveBuildRequest(context) ?: req
+                                val plan = live.generatedPrompts?.takeIf { it.isNotBlank() }
+                                    ?: LocalPromptPlanner.generatePlan(live)
+                                val files = OpenRouterService.generateStarterFiles(live, plan, orKey)
                                 var created = 0
                                 var pr: Int? = null
                                 if (files.isNotEmpty()) {
                                     val rc = GitHubRepoClient(owner.trim(), repo.trim(), token.trim())
                                     val baseBranch = rc.getDefaultBranch()
-                                    val branch = "dev-" + GitHubRepoClient.sanitizeRepoName(req.title).take(30)
+                                    val branch = "dev-" + GitHubRepoClient.sanitizeRepoName(live.title).take(30)
+                                    // إعادة التوليد تتسامح مع وجود الفرع مسبقاً
                                     val base = rc.getBranchSha(baseBranch)
-                                    if (base != null && rc.createBranch(branch, base)) {
+                                    val branchReady = base != null &&
+                                        (rc.createBranch(branch, base) || rc.getBranchSha(branch) != null)
+                                    if (branchReady) {
                                         for ((path, code) in files) {
                                             if (path == ".github/workflows/android-ci.yml") continue // القالب المجرب يحل محله
                                             if (rc.createFile(path, branch, "ملفات البداية: $path", code)) created++
@@ -714,8 +743,8 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                         if (created >= 5) {
                                             pr = rc.createPullRequest(
                                                 branch,
-                                                "هيكل البداية: ${req.title}",
-                                                "توليد تلقائي بـ OpenRouter للطلب من ${req.userEmail}. راجع الفرق ثم ادمج.",
+                                                "هيكل البداية: ${live.title}",
+                                                "توليد تلقائي بـ OpenRouter للطلب من ${live.userEmail}. راجع الفرق ثم ادمج.",
                                                 baseBranch
                                             )
                                             // حماية الفرع الأساسي (أفضل جهد — تحتاج صلاحية إدارة)
@@ -731,17 +760,20 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                     scaffolding = false
                                     if (created > 0) {
                                         if (pr != null && pr!! > 0) {
-                                            reqPrefs.edit().putInt("pr_${req.id}", pr!!).apply()
+                                            reqPrefs.edit().putInt("pr_${live.id}", pr!!).apply()
                                             prNumber = pr!!
                                         }
-                                        AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 30)                                        AppRequestService.sendMessage(
-                                            context,
-                                            AppRequestService.ChatMessage(
-                                                requestId = req.id, senderEmail = "dev", isDeveloper = true,
-                                                message = "كتبنا هيكل تطبيقك الأولي ✅ ($created ملفات) وهو الآن قيد المراجعة قبل الدمج."
+                                        AppRequestService.updateRequestProgressAndPayment(context, live.id, progress = 30)
+                                        if (!reqPrefs.getBoolean("silent_${live.id}", false)) {
+                                            AppRequestService.sendMessage(
+                                                context,
+                                                AppRequestService.ChatMessage(
+                                                    requestId = live.id, senderEmail = "dev", isDeveloper = true,
+                                                    message = "كتبنا هيكل تطبيقك الأولي ✅ ($created ملفات) وهو الآن قيد المراجعة قبل الدمج."
+                                                )
                                             )
-                                        )
-                                        AuditLogger.log(context, "scaffold_created", "$created ملفات + سحب #${pr ?: "?"} للطلب: ${req.title}")
+                                        }
+                                        AuditLogger.log(context, "scaffold_created", "$created ملفات + سحب #${pr ?: "?"} للطلب: ${live.title}")
                                         scaffoldMsg = if (pr != null && pr!! > 0)
                                             "وُلّدت $created ملفات على فرع + سحب #$pr ✅ — راجع ثم ادمج"
                                         else
@@ -767,8 +799,89 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                             Text("🚀 توليد هيكل قابل للبناء بـ OpenRouter", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
-                    // ── 3) الدمج بعد المراجعة ──
-                    if (prNumber > 0) {
+                    // ── 2.5) وكيل الكود: يكمل البناء بأدوات GitHub الحقيقية ──
+                    var agentRunning by remember { mutableStateOf(false) }
+                    var agentReport by remember { mutableStateOf<String?>(null) }
+                    Button(
+                        onClick = {
+                            val orKey = KeyVault.openrouter
+                            if (orKey.isBlank() || token.isBlank()) {
+                                Toast.makeText(context, "يلزم مفتاح OpenRouter ورمز PAT", Toast.LENGTH_LONG).show()
+                                return@Button
+                            }
+                            agentRunning = true
+                            agentReport = null
+                            scope.launch {
+                                val live = AppRequestService.getActiveBuildRequest(context) ?: req
+                                val rc = GitHubRepoClient(owner.trim(), repo.trim(), token.trim())
+                                val baseBranch = rc.getDefaultBranch()
+                                val branch = "dev-" + GitHubRepoClient.sanitizeRepoName(live.title).take(30)
+                                val base = rc.getBranchSha(baseBranch)
+                                if (base != null && (rc.createBranch(branch, base) || rc.getBranchSha(branch) != null)) {
+                                    val plan = live.generatedPrompts?.takeIf { it.isNotBlank() }
+                                        ?: LocalPromptPlanner.generatePlan(live)
+                                    val task = """
+                                        أكمل بناء تطبيق العميل على الفرع $branch.
+                                        الطلب: ${live.title} — ${live.description} (الهدف: ${live.goal}).
+                                        الخطة: ${plan.take(2500)}
+                                        اعمل بأدواتك: افحص الشجرة أولاً، اقرأ الملفات الناقصة، اكتب/أصلح ما يلزم،
+                                        ثم شغّل البناء وتحقق من حالته، واختم بفتح سحب. لا تسأل — نفّذ.
+                                    """.trimIndent()
+                                    val system = "أنت وكيل بناء تطبيقات أندرويد. تعمل بأدوات GitHub فقط، خطوة بخطوة، وتختم بملخص عربي قصير لما فعلته."
+                                    // من غرفة الوكيل: الأدوات المفعّلة + النموذج + حد الجولات + المحاكاة
+                                    val dryRun = AgentPrefs.isDryRun(context)
+                                    val codeTools = CodeTools.definitions(CodeTools.Ctx(owner.trim(), repo.trim(), token.trim(), branch))
+                                        .filter { t ->
+                                            AgentPrefs.isToolEnabled(context, t.name) &&
+                                                (!dryRun || t.name in setOf("list_tree", "read_file", "build_status"))
+                                        }
+                                    val task = (if (dryRun) "وضع محاكاة 🔍: لا تكتب شيئاً — افحص بأدوات القراءة واعرض خطة تنفيذ مرقمة فقط.\n" else "") + """
+                                        أكمل بناء تطبيق العميل على الفرع $branch.
+                                        الطلب: ${live.title} — ${live.description} (الهدف: ${live.goal}).
+                                        الخطة: ${plan.take(2500)}
+                                        اعمل بأدواتك: افحص الشجرة أولاً، اقرأ الملفات الناقصة، اكتب/أصلح ما يلزم،
+                                        ثم شغّل البناء وتحقق من حالته، واختم بفتح سحب. لا تسأل — نفّذ.
+                                    """.trimIndent()
+                                    val (summary, used) = OpenRouterService.chatWithTools(
+                                        orKey, system, listOf(true to task), codeTools,
+                                        AgentPrefs.model(context), AgentPrefs.maxTurns(context)
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        agentRunning = false
+                                        agentReport = if (used.isEmpty() && summary.isBlank()) {
+                                            "تعذر تشغيل الوكيل — تحقق من المفتاح والرمز."
+                                        } else {
+                                            "🤖 أدوات مستخدمة: ${used.joinToString("، ")}\n$summary"
+                                        }
+                                        AuditLogger.log(context, "code_agent", "وكيل ${live.title}: ${used.joinToString(",")}")
+                                        Toast.makeText(context, "انتهى الوكيل — راجع التقرير", Toast.LENGTH_LONG).show()
+                                        refreshAll()
+                                    }
+                                } else {
+                                    withContext(Dispatchers.Main) {
+                                        agentRunning = false
+                                        agentReport = "تعذر تجهيز فرع العمل."
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !agentRunning && !busy && priced,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (agentRunning) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("الوكيل يعمل… (يفحص/يكتب/يبني)", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        } else {
+                            Text("🤖 وكيل الكود يكمل البناء", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    agentReport?.let {
+                        Text(it, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    }
+                    // ── 3) الدمج بعد المراجعة ──                    if (prNumber > 0) {
                         var merging by remember { mutableStateOf(false) }
                         Button(
                             onClick = {
@@ -780,13 +893,15 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                         merging = false
                                         if (ok) {
                                             AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 60)
-                                            AppRequestService.sendMessage(
-                                                context,
-                                                AppRequestService.ChatMessage(
-                                                    requestId = req.id, senderEmail = "dev", isDeveloper = true,
-                                                    message = "اعتُمد الهيكل ودُمج ✅ — ننتقل الآن لبناء نسختك الأولى."
+                                            if (!reqPrefs.getBoolean("silent_${req.id}", false)) {
+                                                AppRequestService.sendMessage(
+                                                    context,
+                                                    AppRequestService.ChatMessage(
+                                                        requestId = req.id, senderEmail = "dev", isDeveloper = true,
+                                                        message = "اعتُمد الهيكل ودُمج ✅ — ننتقل الآن لبناء نسختك الأولى."
+                                                    )
                                                 )
-                                            )
+                                            }
                                             AuditLogger.log(context, "pr_merged", "دمج سحب #$prNumber للطلب: ${req.title}")
                                             Toast.makeText(context, "دُمج في main ✅", Toast.LENGTH_SHORT).show()
                                         } else {
@@ -828,6 +943,8 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                         AppRequestService.updateRequestProgressAndPayment(
                                             context, req.id, status = "completed", progress = 100
                                         )
+                                        reqPrefs.edit().putBoolean("silent_${req.id}", false).apply()
+                                        silentMode = false
                                         AppRequestService.clearActiveBuildRequest(context)
                                         activeReq.value = null
                                         AuditLogger.log(context, "request_delivered", "تسليم $tag للطلب: ${req.title}")

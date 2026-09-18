@@ -182,6 +182,9 @@ fun AppNavigation(
         AppState.DEVELOPER_DASHBOARD -> {
             DeveloperDashboardScreen(
                 onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
+                onOpenChat = { reqId ->
+                    viewModel.updateState { copy(appState = AppState.REQUEST_CHAT, selectedRequestId = reqId) }
+                },
                 onNavigateTo = { viewModel.updateState { copy(appState = it) } }
             )
         }
@@ -788,7 +791,11 @@ fun AppNavigation(
         AppState.REQUEST_CHAT -> {
             RequestChatScreen(
                 requestId = state.selectedRequestId ?: "",
-                onBack = { viewModel.updateState { copy(appState = AppState.HOME) } }
+                onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
+                onOpenDashboardSection = { section ->
+                    viewModel.updateState { copy(appState = AppState.DEVELOPER_DASHBOARD) }
+                },
+                onOpenDetails = { viewModel.updateState { copy(appState = AppState.REQUEST_DETAILS) } }
             )
         }
         AppState.REQUEST_DETAILS -> {
