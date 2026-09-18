@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.*
@@ -13,51 +14,47 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * مدير التحديثات الذكية — يتحقق من GitHub Releases.
+ * مدير التحديثات الذكية.
  *
  * الأولوية:
- * 1) تحميل ملف .delta الصغير وتطبيقه على APK المثبت (إن أمكن)
- * 2) الرجوع تلقائياً لتحميل APK الكامل عند غياب الـ Delta أو فشل تطبيقه
- *
- * ملاحظة: تطبيق الـ Delta يحتاج أداة xdelta3 على الجهاز.
- * إن لم تتوفر، يتم التنزيل الكامل بأمان دون فشل صامت.
+ * 1) تحميل .delta + تحميل xdelta3 تلقائياً (حسب معمارية الجهاز) من نفس الـ Release
+ * 2) تطبيق الـ patch على APK المثبت
+ * 3) عند أي فشل → تحميل APK الكامل
  */
 object UpdateManager {
 
     private const val TAG = "UpdateManager"
     private const val REPO = "aliwalead2007-ship-it/QabasStudio-"
-    private const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L // 6 ساعات
+    private const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
         .build()
 
     data class UpdateInfo(
         val versionName: String,
         val versionCode: Int,
-        val deltaUrl: String?,   // رابط ملف .delta الصغير
-        val apkUrl: String,      // رابط APK الكامل (احتياطي)
+        val deltaUrl: String?,
+        val apkUrl: String,
         val releaseNotes: String,
         val deltaSize: Long,
-        val apkSize: Long
+        val apkSize: Long,
+        /** روابط ثنائيات xdelta3 حسب المعمارية (اسم الملف → رابط) */
+        val xdeltaUrls: Map<String, String> = emptyMap()
     )
 
-    /**
-     * يتحقق من وجود تحديث. يُرجع null إذا لم يكن هناك جديد.
-     */
     suspend fun checkForUpdate(context: Context, force: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val prefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
             val lastCheck = prefs.getLong("update_last_check", 0)
-
             if (!force && System.currentTimeMillis() - lastCheck < CHECK_INTERVAL_MS) {
-                Log.d(TAG, "Skipping check — last check was ${(System.currentTimeMillis() - lastCheck) / 1000 / 60}min ago")
+                Log.d(TAG, "Skipping check")
                 return@withContext null
             }
 
             val currentVersionCode = getCurrentVersionCode(context)
-            Log.d(TAG, "Checking for updates... current code=$currentVersionCode")
+            Log.d(TAG, "Checking updates… current=$currentVersionCode")
 
             val request = Request.Builder()
                 .url("https://api.github.com/repos/$REPO/releases/latest")
@@ -67,20 +64,18 @@ object UpdateManager {
 
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
-                Log.w(TAG, "GitHub API returned ${response.code}")
+                Log.w(TAG, "GitHub API ${response.code}")
                 return@withContext null
             }
 
             val body = response.body?.string() ?: return@withContext null
             val json = org.json.JSONObject(body)
-
             val tagName = json.optString("tag_name", "")
             val releaseNotes = json.optString("body", "")
             val assets = json.getJSONArray("assets")
 
             val releaseVersionCode = parseVersionCode(tagName)
             if (releaseVersionCode <= currentVersionCode) {
-                Log.d(TAG, "Already up to date ($currentVersionCode >= $releaseVersionCode)")
                 prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply()
                 return@withContext null
             }
@@ -89,31 +84,30 @@ object UpdateManager {
             var deltaSize = 0L
             var apkUrl: String? = null
             var apkSize = 0L
+            val xdeltaUrls = mutableMapOf<String, String>()
 
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 val name = asset.getString("name")
                 val url = asset.getString("browser_download_url")
                 val size = asset.getLong("size")
-
                 when {
                     name.endsWith(".delta") -> {
-                        deltaUrl = url
-                        deltaSize = size
+                        deltaUrl = url; deltaSize = size
                     }
                     name.endsWith(".apk") -> {
-                        apkUrl = url
-                        apkSize = size
+                        apkUrl = url; apkSize = size
+                    }
+                    name.startsWith("xdelta3-") -> {
+                        xdeltaUrls[name] = url
                     }
                 }
             }
 
             if (apkUrl == null) {
-                Log.w(TAG, "No APK found in release")
+                Log.w(TAG, "No APK in release")
                 return@withContext null
             }
-
-            Log.d(TAG, "Update available: $tagName (code=$releaseVersionCode), delta=${deltaUrl != null}, deltaSize=$deltaSize")
 
             prefs.edit()
                 .putLong("update_last_check", System.currentTimeMillis())
@@ -127,17 +121,15 @@ object UpdateManager {
                 apkUrl = apkUrl!!,
                 releaseNotes = releaseNotes,
                 deltaSize = deltaSize,
-                apkSize = apkSize
+                apkSize = apkSize,
+                xdeltaUrls = xdeltaUrls
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Update check failed: ${e.message}")
+            Log.e(TAG, "check failed: ${e.message}")
             null
         }
     }
 
-    /**
-     * يحمّل التحديث (يفضّل Delta إن وُجد) ثم يفتح مثبّت النظام.
-     */
     fun downloadAndInstall(
         context: Context,
         update: UpdateInfo,
@@ -150,12 +142,10 @@ object UpdateManager {
                 val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
                 onProgress(0)
 
-                // ── محاولة مسار الـ Delta أولاً ──
                 if (!update.deltaUrl.isNullOrBlank() && update.deltaSize > 0) {
-                    Log.d(TAG, "Trying delta path (${formatSize(update.deltaSize)})...")
+                    Log.d(TAG, "Trying delta (${formatSize(update.deltaSize)})…")
                     val patched = tryDeltaUpdate(context, update, updatesDir, authToken) { pct ->
-                        // 0–80% لمسار الـ Delta
-                        onProgress((pct * 0.8).toInt().coerceIn(0, 80))
+                        onProgress((pct * 0.85).toInt().coerceIn(0, 85))
                     }
                     if (patched != null && patched.exists() && patched.length() > 1_000_000) {
                         onProgress(100)
@@ -163,48 +153,36 @@ object UpdateManager {
                             launchInstaller(context, patched)
                             onDone(
                                 true,
-                                "تم التحديث عبر Delta ${update.versionName} (${formatSize(update.deltaSize)} بدل ${formatSize(update.apkSize)})"
+                                "تحديث صغير ${update.versionName} (${formatSize(update.deltaSize)} بدل ${formatSize(update.apkSize)})"
                             )
                         }
                         return@launch
                     }
-                    Log.w(TAG, "Delta path failed — falling back to full APK")
-                } else {
-                    Log.d(TAG, "No delta available — using full APK")
+                    Log.w(TAG, "Delta failed — full APK fallback")
                 }
 
-                // ── مسار APK الكامل (احتياطي دائماً) ──
-                Log.d(TAG, "Downloading full APK (${formatSize(update.apkSize)})...")
+                Log.d(TAG, "Downloading full APK (${formatSize(update.apkSize)})…")
                 val apkFile = downloadFile(
-                    update.apkUrl,
-                    updatesDir,
-                    "qabas-${update.versionName}.apk",
-                    authToken
-                ) { pct -> onProgress(pct) }
+                    update.apkUrl, updatesDir,
+                    "qabas-${update.versionName}.apk", authToken
+                ) { onProgress(it) }
 
                 if (apkFile != null && apkFile.exists() && apkFile.length() > 1_000_000) {
                     onProgress(100)
                     withContext(Dispatchers.Main) {
                         launchInstaller(context, apkFile)
-                        onDone(true, "تم تحميل التحديث ${update.versionName} (${formatSize(update.apkSize)})")
+                        onDone(true, "تم تحميل ${update.versionName} (${formatSize(update.apkSize)})")
                     }
                 } else {
-                    withContext(Dispatchers.Main) {
-                        onDone(false, "فشل تحميل التحديث")
-                    }
+                    withContext(Dispatchers.Main) { onDone(false, "فشل تحميل التحديث") }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Download/install failed: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    onDone(false, "خطأ: ${e.message}")
-                }
+                Log.e(TAG, "downloadAndInstall: ${e.message}", e)
+                withContext(Dispatchers.Main) { onDone(false, "خطأ: ${e.message}") }
             }
         }
     }
 
-    /**
-     * يحمّل .delta ويطبّقه على APK المثبت. يُرجع الملف الناتج أو null عند الفشل.
-     */
     private fun tryDeltaUpdate(
         context: Context,
         update: UpdateInfo,
@@ -213,22 +191,26 @@ object UpdateManager {
         onProgress: (Int) -> Unit
     ): File? {
         return try {
+            // 1) تأكد من وجود xdelta3 (تحميل تلقائي إن لزم)
+            val binary = ensureXdeltaBinary(context, update, authToken)
+                ?: run {
+                    Log.w(TAG, "No xdelta3 binary available")
+                    return null
+                }
+            onProgress(10)
+
+            // 2) تحميل الـ delta
             val deltaFile = downloadFile(
-                update.deltaUrl!!,
-                updatesDir,
-                "qabas-${update.versionName}.delta",
-                authToken
-            ) { pct -> onProgress((pct * 0.5).toInt().coerceIn(0, 50)) }
-                ?: return null
+                update.deltaUrl!!, updatesDir,
+                "qabas-${update.versionName}.delta", authToken
+            ) { pct -> onProgress(10 + (pct * 0.4).toInt()) } ?: return null
 
-            if (!deltaFile.exists() || deltaFile.length() < 100) {
-                Log.w(TAG, "Delta file invalid or empty")
-                return null
-            }
+            if (deltaFile.length() < 100) return null
 
+            // 3) APK المثبت كمصدر
             val sourceApk = File(context.applicationInfo.sourceDir)
             if (!sourceApk.exists()) {
-                Log.w(TAG, "Installed APK not found at ${sourceApk.absolutePath}")
+                Log.w(TAG, "source APK missing")
                 return null
             }
 
@@ -236,54 +218,88 @@ object UpdateManager {
             if (outApk.exists()) outApk.delete()
 
             onProgress(55)
-            val ok = applyXdelta(context, sourceApk, deltaFile, outApk)
+            val ok = applyXdelta(binary, sourceApk, deltaFile, outApk)
             onProgress(90)
 
             if (ok && outApk.exists() && outApk.length() > 1_000_000) {
-                Log.d(TAG, "Delta applied successfully → ${outApk.length()} bytes")
-                // تنظيف ملف الـ delta بعد النجاح
                 deltaFile.delete()
                 outApk
             } else {
-                Log.w(TAG, "Delta apply failed or output too small")
                 outApk.delete()
                 null
             }
         } catch (e: Exception) {
-            Log.e(TAG, "tryDeltaUpdate error: ${e.message}", e)
+            Log.e(TAG, "tryDeltaUpdate: ${e.message}", e)
             null
         }
     }
 
     /**
-     * يطبّق patch بأسلوب xdelta3:
-     * xdelta3 -d -s SOURCE DELTA OUTPUT
-     *
-     * يبحث عن الثنائي في:
-     * 1) filesDir/xdelta3 (إن وُضع يدوياً أو من assets)
-     * 2) nativeLibraryDir
-     * 3) PATH النظام (نادر على أندرويد)
+     * يوفّر ثنائي xdelta3:
+     * 1) filesDir إن وُجد مسبقاً
+     * 2) تحميل من أصول الـ Release حسب ABI الجهاز
      */
-    private fun applyXdelta(context: Context, source: File, delta: File, output: File): Boolean {
-        val binary = resolveXdeltaBinary(context)
-        if (binary == null) {
-            Log.w(TAG, "xdelta3 binary not found on device — cannot apply delta")
-            return false
+    private fun ensureXdeltaBinary(
+        context: Context,
+        update: UpdateInfo,
+        authToken: String?
+    ): File? {
+        val dest = File(context.filesDir, "xdelta3")
+        if (dest.exists() && dest.canExecute() && dest.length() > 10_000) {
+            return dest
         }
 
+        val abi = preferredAbi()
+        val assetName = "xdelta3-$abi"
+        val url = update.xdeltaUrls[assetName]
+            ?: update.xdeltaUrls.entries.firstOrNull {
+                it.key.contains(abi) || (abi == "arm64-v8a" && it.key.contains("arm64"))
+            }?.value
+
+        if (url.isNullOrBlank()) {
+            Log.w(TAG, "No xdelta3 asset for ABI=$abi in release (have: ${update.xdeltaUrls.keys})")
+            return null
+        }
+
+        Log.d(TAG, "Downloading $assetName …")
+        val tmp = downloadFile(url, context.filesDir, "xdelta3.download", authToken) { }
+            ?: return null
+
+        if (dest.exists()) dest.delete()
+        if (!tmp.renameTo(dest)) {
+            tmp.copyTo(dest, overwrite = true)
+            tmp.delete()
+        }
+        dest.setExecutable(true, false)
+        dest.setReadable(true, false)
+
+        return if (dest.exists() && dest.length() > 10_000) dest else null
+    }
+
+    private fun preferredAbi(): String {
+        val abis = Build.SUPPORTED_ABIS
+        return when {
+            abis.any { it == "arm64-v8a" } -> "arm64-v8a"
+            abis.any { it == "armeabi-v7a" } -> "armeabi-v7a"
+            abis.any { it == "x86_64" } -> "x86_64"
+            abis.any { it == "x86" } -> "x86"
+            else -> abis.firstOrNull() ?: "arm64-v8a"
+        }
+    }
+
+    private fun applyXdelta(binary: File, source: File, delta: File, output: File): Boolean {
         return try {
             val cmd = listOf(
                 binary.absolutePath,
-                "-d",           // decode
+                "-d",
                 "-s", source.absolutePath,
                 delta.absolutePath,
                 output.absolutePath
             )
-            Log.d(TAG, "Running: ${cmd.joinToString(" ")}")
+            Log.d(TAG, "exec: ${cmd.joinToString(" ")}")
             val process = ProcessBuilder(cmd)
                 .redirectErrorStream(true)
                 .start()
-
             val log = process.inputStream.bufferedReader().readText()
             val code = process.waitFor()
             if (code != 0) {
@@ -292,55 +308,9 @@ object UpdateManager {
             }
             true
         } catch (e: Exception) {
-            Log.e(TAG, "applyXdelta failed: ${e.message}", e)
+            Log.e(TAG, "applyXdelta: ${e.message}", e)
             false
         }
-    }
-
-    private fun resolveXdeltaBinary(context: Context): File? {
-        // 1) ملف مستخرج مسبقاً في الملفات الخاصة بالتطبيق
-        val inFiles = File(context.filesDir, "xdelta3")
-        if (inFiles.exists() && inFiles.canExecute()) return inFiles
-
-        // 2) محاولة استخراج من assets إن وُجد
-        try {
-            val assetNames = listOf(
-                "xdelta3",
-                "xdelta3-arm64",
-                "bin/xdelta3",
-                "native/xdelta3"
-            )
-            for (name in assetNames) {
-                try {
-                    context.assets.open(name).use { input ->
-                        inFiles.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    inFiles.setExecutable(true, false)
-                    if (inFiles.exists() && inFiles.length() > 1000) {
-                        Log.d(TAG, "Extracted xdelta3 from assets/$name")
-                        return inFiles
-                    }
-                } catch (_: Exception) {
-                    // asset غير موجود — جرّب التالي
-                }
-            }
-        } catch (_: Exception) {
-        }
-
-        // 3) nativeLibraryDir (إن وُضع .so أو ثنائي هناك)
-        val libDir = File(context.applicationInfo.nativeLibraryDir ?: "")
-        val candidates = listOf(
-            File(libDir, "xdelta3"),
-            File(libDir, "libxdelta3.so")
-        )
-        for (c in candidates) {
-            if (c.exists()) {
-                // .so قد لا يُنفَّذ مباشرة؛ نتخطاه إن لم يكن executable
-                if (c.canExecute() || c.name == "xdelta3") return c
-            }
-        }
-
-        return null
     }
 
     private fun downloadFile(
@@ -358,48 +328,43 @@ object UpdateManager {
                     builder.header("Accept", "application/octet-stream")
                 }
             }
-            val request = builder.build()
-            val response = client.newCall(request).execute()
+            val response = client.newCall(builder.build()).execute()
             if (!response.isSuccessful) {
-                Log.w(TAG, "Download HTTP ${response.code} for $url")
+                Log.w(TAG, "HTTP ${response.code} $url")
                 return null
             }
-
             val body = response.body ?: return null
-            val totalBytes = body.contentLength()
+            val total = body.contentLength()
             val file = File(destDir, fileName)
-
             body.byteStream().use { input ->
                 file.outputStream().use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalRead = 0L
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalRead += bytesRead
-                        if (totalBytes > 0) {
-                            onProgress((totalRead * 100 / totalBytes).toInt().coerceIn(0, 100))
-                        }
+                    val buf = ByteArray(8192)
+                    var n: Int
+                    var read = 0L
+                    while (input.read(buf).also { n = it } != -1) {
+                        output.write(buf, 0, n)
+                        read += n
+                        if (total > 0) onProgress((read * 100 / total).toInt().coerceIn(0, 100))
                     }
                 }
             }
             file
         } catch (e: Exception) {
-            Log.e(TAG, "Download failed: ${e.message}")
+            Log.e(TAG, "download: ${e.message}")
             null
         }
     }
 
     private fun launchInstaller(context: Context, apkFile: File) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val pm = context.packageManager
-            if (!pm.canRequestPackageInstalls()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
                 try {
-                    val settingsIntent = Intent(
-                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:${context.packageName}")
-                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                    context.startActivity(settingsIntent)
+                    context.startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${context.packageName}")
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
                     android.widget.Toast.makeText(
                         context,
                         "فعّل «السماح من هذا المصدر» ثم أعد المحاولة",
@@ -411,34 +376,28 @@ object UpdateManager {
             }
         }
         val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            apkFile
+            context, "${context.packageName}.fileprovider", apkFile
         )
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
     }
 
-    private fun getCurrentVersionCode(context: Context): Int {
-        return try {
-            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
-        } catch (e: PackageManager.NameNotFoundException) {
-            0
-        }
+    private fun getCurrentVersionCode(context: Context): Int = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
+    } catch (_: PackageManager.NameNotFoundException) {
+        0
     }
 
     private fun parseVersionCode(tag: String): Int {
-        // الوسم: "v1.2.1+140" → 140 (يطابق versionCode / run_number)
         val buildPart = tag.substringAfter("+", "")
         if (buildPart.isNotEmpty()) {
             return buildPart.filter { it.isDigit() }.toIntOrNull() ?: 0
         }
-        val clean = tag.removePrefix("v").trim()
-        val parts = clean.split(".")
+        val parts = tag.removePrefix("v").trim().split(".")
         val major = parts.getOrNull(0)?.toIntOrNull() ?: return 0
         val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
         val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
