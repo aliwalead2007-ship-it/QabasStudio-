@@ -44,6 +44,28 @@ object UpdateManager {
         val xdeltaUrls: Map<String, String> = emptyMap()
     )
 
+    /** مراحل عملية التحديث — تُستخدم لعرض تسمية دقيقة في الواجهة. */
+    enum class Phase { DOWNLOADING_DELTA, APPLYING_PATCH, DOWNLOADING_FULL }
+
+    /** تقدّم لحظي غني بالتفاصيل: نسبة + بايتات + سرعة + المرحلة الحالية. */
+    data class DownloadProgress(
+        val percent: Int,
+        val bytesDownloaded: Long,
+        val totalBytes: Long,
+        val phase: Phase,
+        val speedBytesPerSec: Long
+    )
+
+    /** مقبض تحكّم يُعاد للواجهة فور بدء التحميل — يسمح بالإلغاء الفعلي في أي لحظة. */
+    class DownloadHandle {
+        @Volatile var cancelled: Boolean = false
+            private set
+        fun cancel() { cancelled = true }
+    }
+
+    /** يُرمى داخلياً لقطع سلسلة التنفيذ فور طلب الإلغاء. */
+    private class DownloadCancelledException : Exception("أُلغي التحديث بواسطة المستخدم")
+
     suspend fun checkForUpdate(context: Context, force: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val prefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
@@ -130,25 +152,26 @@ object UpdateManager {
         }
     }
 
+    /**
+     * يبدأ التحميل والتثبيت في الخلفية ويعيد فوراً [DownloadHandle] يمكن استدعاء
+     * cancel() عليه من الواجهة لإيقاف العملية بشكل فعلي (لا مجرد إخفاء الشريط).
+     */
     fun downloadAndInstall(
         context: Context,
         update: UpdateInfo,
-        onProgress: (Int) -> Unit = {},
+        onProgress: (DownloadProgress) -> Unit = {},
         onDone: (Boolean, String) -> Unit = { _, _ -> },
         authToken: String? = null
-    ) {
+    ): DownloadHandle {
+        val handle = DownloadHandle()
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
-                onProgress(0)
 
                 if (!update.deltaUrl.isNullOrBlank() && update.deltaSize > 0) {
                     Log.d(TAG, "Trying delta (${formatSize(update.deltaSize)})…")
-                    val patched = tryDeltaUpdate(context, update, updatesDir, authToken) { pct ->
-                        onProgress((pct * 0.85).toInt().coerceIn(0, 85))
-                    }
+                    val patched = tryDeltaUpdate(context, update, updatesDir, authToken, handle, onProgress)
                     if (patched != null && patched.exists() && patched.length() > 1_000_000) {
-                        onProgress(100)
                         withContext(Dispatchers.Main) {
                             launchInstaller(context, patched)
                             onDone(
@@ -158,17 +181,24 @@ object UpdateManager {
                         }
                         return@launch
                     }
+                    if (handle.cancelled) throw DownloadCancelledException()
                     Log.w(TAG, "Delta failed — full APK fallback")
                 }
+
+                if (handle.cancelled) throw DownloadCancelledException()
 
                 Log.d(TAG, "Downloading full APK (${formatSize(update.apkSize)})…")
                 val apkFile = downloadFile(
                     update.apkUrl, updatesDir,
-                    "qabas-${update.versionName}.apk", authToken
-                ) { onProgress(it) }
+                    "qabas-${update.versionName}.apk", authToken, handle
+                ) { bytes, total, speed ->
+                    val pct = if (total > 0) (bytes * 100 / total).toInt().coerceIn(0, 100) else 0
+                    onProgress(DownloadProgress(pct, bytes, total, Phase.DOWNLOADING_FULL, speed))
+                }
+
+                if (handle.cancelled) throw DownloadCancelledException()
 
                 if (apkFile != null && apkFile.exists() && apkFile.length() > 1_000_000) {
-                    onProgress(100)
                     withContext(Dispatchers.Main) {
                         launchInstaller(context, apkFile)
                         onDone(true, "تم تحميل ${update.versionName} (${formatSize(update.apkSize)})")
@@ -176,11 +206,14 @@ object UpdateManager {
                 } else {
                     withContext(Dispatchers.Main) { onDone(false, "فشل تحميل التحديث") }
                 }
+            } catch (e: DownloadCancelledException) {
+                withContext(Dispatchers.Main) { onDone(false, "أُلغي التحديث") }
             } catch (e: Exception) {
                 Log.e(TAG, "downloadAndInstall: ${e.message}", e)
                 withContext(Dispatchers.Main) { onDone(false, "خطأ: ${e.message}") }
             }
         }
+        return handle
     }
 
     private fun tryDeltaUpdate(
@@ -188,23 +221,28 @@ object UpdateManager {
         update: UpdateInfo,
         updatesDir: File,
         authToken: String?,
-        onProgress: (Int) -> Unit
+        handle: DownloadHandle,
+        onProgress: (DownloadProgress) -> Unit
     ): File? {
         return try {
             // 1) تأكد من وجود xdelta3 (تحميل تلقائي إن لزم)
-            val binary = ensureXdeltaBinary(context, update, authToken)
+            val binary = ensureXdeltaBinary(context, update, authToken, handle)
                 ?: run {
                     Log.w(TAG, "No xdelta3 binary available")
                     return null
                 }
-            onProgress(10)
+            if (handle.cancelled) return null
 
-            // 2) تحميل الـ delta
+            // 2) تحميل الـ delta (مع تقدّم لحظي حقيقي بالبايت والسرعة)
             val deltaFile = downloadFile(
                 update.deltaUrl!!, updatesDir,
-                "qabas-${update.versionName}.delta", authToken
-            ) { pct -> onProgress(10 + (pct * 0.4).toInt()) } ?: return null
+                "qabas-${update.versionName}.delta", authToken, handle
+            ) { bytes, total, speed ->
+                val pct = if (total > 0) (bytes * 100 / total).toInt().coerceIn(0, 100) else 0
+                onProgress(DownloadProgress(pct, bytes, total, Phase.DOWNLOADING_DELTA, speed))
+            } ?: return null
 
+            if (handle.cancelled) { deltaFile.delete(); return null }
             if (deltaFile.length() < 100) return null
 
             // 3) APK المثبت كمصدر
@@ -217,9 +255,10 @@ object UpdateManager {
             val outApk = File(updatesDir, "qabas-${update.versionName}-patched.apk")
             if (outApk.exists()) outApk.delete()
 
-            onProgress(55)
+            onProgress(DownloadProgress(0, 0, update.deltaSize, Phase.APPLYING_PATCH, 0))
             val ok = applyXdelta(binary, sourceApk, deltaFile, outApk)
-            onProgress(90)
+            if (handle.cancelled) { outApk.delete(); return null }
+            onProgress(DownloadProgress(100, update.deltaSize, update.deltaSize, Phase.APPLYING_PATCH, 0))
 
             if (ok && outApk.exists() && outApk.length() > 1_000_000) {
                 deltaFile.delete()
@@ -242,7 +281,8 @@ object UpdateManager {
     private fun ensureXdeltaBinary(
         context: Context,
         update: UpdateInfo,
-        authToken: String?
+        authToken: String?,
+        handle: DownloadHandle
     ): File? {
         val dest = File(context.filesDir, "xdelta3")
         if (dest.exists() && dest.canExecute() && dest.length() > 10_000) {
@@ -262,7 +302,7 @@ object UpdateManager {
         }
 
         Log.d(TAG, "Downloading $assetName …")
-        val tmp = downloadFile(url, context.filesDir, "xdelta3.download", authToken) { }
+        val tmp = downloadFile(url, context.filesDir, "xdelta3.download", authToken, handle) { _, _, _ -> }
             ?: return null
 
         if (dest.exists()) dest.delete()
@@ -313,45 +353,76 @@ object UpdateManager {
         }
     }
 
+    /**
+     * تحميل ملف مع تقدّم لحظي حقيقي (بايتات + سرعة) وقابلية إلغاء فعلية:
+     * يفحص handle.cancelled كل دفعة قراءة، ويقطع الاتصال ويحذف الملف الجزئي فوراً عند الإلغاء.
+     */
     private fun downloadFile(
         url: String,
         destDir: File,
         fileName: String,
         authToken: String? = null,
-        onProgress: (Int) -> Unit
+        handle: DownloadHandle,
+        onProgress: (bytesRead: Long, total: Long, speedBps: Long) -> Unit
     ): File? {
-        return try {
-            val builder = Request.Builder().url(url)
-            if (!authToken.isNullOrBlank()) {
-                builder.header("Authorization", "Bearer $authToken")
-                if (url.contains("/releases/assets/")) {
-                    builder.header("Accept", "application/octet-stream")
-                }
+        val builder = Request.Builder().url(url)
+        if (!authToken.isNullOrBlank()) {
+            builder.header("Authorization", "Bearer $authToken")
+            if (url.contains("/releases/assets/")) {
+                builder.header("Accept", "application/octet-stream")
             }
-            val response = client.newCall(builder.build()).execute()
+        }
+        val call = client.newCall(builder.build())
+        val file = File(destDir, fileName)
+        try {
+            val response = call.execute()
             if (!response.isSuccessful) {
                 Log.w(TAG, "HTTP ${response.code} $url")
                 return null
             }
             val body = response.body ?: return null
             val total = body.contentLength()
-            val file = File(destDir, fileName)
+
+            var windowStart = System.currentTimeMillis()
+            var windowBytes = 0L
+            var lastSpeed = 0L
+
             body.byteStream().use { input ->
                 file.outputStream().use { output ->
-                    val buf = ByteArray(8192)
+                    val buf = ByteArray(65536)
                     var n: Int
                     var read = 0L
-                    while (input.read(buf).also { n = it } != -1) {
+                    while (true) {
+                        if (handle.cancelled) {
+                            call.cancel()
+                            throw DownloadCancelledException()
+                        }
+                        n = input.read(buf)
+                        if (n == -1) break
                         output.write(buf, 0, n)
                         read += n
-                        if (total > 0) onProgress((read * 100 / total).toInt().coerceIn(0, 100))
+                        windowBytes += n
+
+                        val now = System.currentTimeMillis()
+                        val elapsed = now - windowStart
+                        if (elapsed >= 200) {
+                            lastSpeed = (windowBytes * 1000L / elapsed)
+                            windowStart = now
+                            windowBytes = 0
+                        }
+                        onProgress(read, total, lastSpeed)
                     }
+                    onProgress(read, total, lastSpeed)
                 }
             }
-            file
+            return file
+        } catch (e: DownloadCancelledException) {
+            try { file.delete() } catch (_: Exception) {}
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "download: ${e.message}")
-            null
+            try { file.delete() } catch (_: Exception) {}
+            return null
         }
     }
 
@@ -409,4 +480,6 @@ object UpdateManager {
         bytes < 1024 * 1024 -> "${bytes / 1024}KB"
         else -> "${"%.1f".format(bytes / 1024.0 / 1024.0)}MB"
     }
+
+    fun formatSpeed(bytesPerSec: Long): String = "${formatSize(bytesPerSec)}/ث"
 }

@@ -296,7 +296,7 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
         )
         UpdateManager.downloadAndInstall(
             context, info,
-            onProgress = { installingProgress = it },
+            onProgress = { installingProgress = it.percent },
             onDone = { ok, msg ->
                 installingTag = null
                 installingProgress = 0

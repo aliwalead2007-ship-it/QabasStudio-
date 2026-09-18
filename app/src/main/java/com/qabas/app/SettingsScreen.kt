@@ -63,9 +63,15 @@ fun SettingsScreen(
     var showAboutAppDialog by remember { mutableStateOf(false) }
     var showChangelogDialog by remember { mutableStateOf(false) }
     var showPrivacyDialog by remember { mutableStateOf(false) }
-    var updateState by remember { mutableStateOf<String?>(null) } // null = idle, "checking...", "found", "none", "error"
+    var updateState by remember { mutableStateOf<String?>(null) } // null = idle, "checking...", "found", "downloading", "done", "none", "error"
     var updateInfo by remember { mutableStateOf<UpdateManager.UpdateInfo?>(null) }
     var updateProgress by remember { mutableStateOf(0) }
+    var updateDownloadedBytes by remember { mutableStateOf(0L) }
+    var updateTotalBytes by remember { mutableStateOf(0L) }
+    var updateSpeedBps by remember { mutableStateOf(0L) }
+    var updatePhase by remember { mutableStateOf<UpdateManager.Phase?>(null) }
+    var updateHandle by remember { mutableStateOf<UpdateManager.DownloadHandle?>(null) }
+    var updateDoneMessage by remember { mutableStateOf("") }
 
     // ── Developer Mode:叩 مخفي على نص الإصدار (7 مرات) ──
     var devTapCount by remember { mutableIntStateOf(0) }
@@ -697,7 +703,12 @@ fun SettingsScreen(
                                         "found" -> "تحديث جديد متاح"
                                         "none" -> "نسختك محدّثة"
                                         "error" -> "تعذّر الاتصال بالخادم"
-                                        "downloading" -> "جاري تنزيل التحديث..."
+                                        "downloading" -> when (updatePhase) {
+                                            UpdateManager.Phase.DOWNLOADING_DELTA -> "تنزيل تحديث صغير (دلتا)..."
+                                            UpdateManager.Phase.APPLYING_PATCH -> "تطبيق التحديث الصغير..."
+                                            UpdateManager.Phase.DOWNLOADING_FULL -> "تنزيل التحديث الكامل..."
+                                            else -> "جاري تنزيل التحديث..."
+                                        }
                                         "done" -> "اكتمل التنزيل"
                                         else -> "التحديثات"
                                     },
@@ -711,8 +722,13 @@ fun SettingsScreen(
                                         "found" -> "v${BuildConfig.VERSION_NAME} ← v${updateInfo?.versionName}"
                                         "none" -> "v${BuildConfig.VERSION_NAME} • الأحدث ✓"
                                         "error" -> "تحقق من الإنترنت ثم أعد المحاولة"
-                                        "downloading" -> "$updateProgress٪ من ${updateInfo?.let { UpdateManager.formatSize(it.apkSize) } ?: ""}"
-                                        "done" -> "أكمل التثبيت من شاشة النظام"
+                                        "downloading" -> {
+                                            val downloaded = UpdateManager.formatSize(updateDownloadedBytes)
+                                            val total = if (updateTotalBytes > 0) UpdateManager.formatSize(updateTotalBytes) else "…"
+                                            val speed = if (updateSpeedBps > 0) " • ${UpdateManager.formatSpeed(updateSpeedBps)}" else ""
+                                            "$updateProgress٪ • $downloaded من $total$speed"
+                                        }
+                                        "done" -> updateDoneMessage.ifBlank { "أكمل التثبيت من شاشة النظام" }
                                         "checking..." -> "نقارن نسختك مع آخر إصدار على GitHub"
                                         else -> "آخر فحص يقارن نسختك مع GitHub Releases"
                                     },
@@ -728,9 +744,27 @@ fun SettingsScreen(
                                     updateInfo?.let { info ->
                                         updateState = "downloading"
                                         updateProgress = 0
-                                        UpdateManager.downloadAndInstall(context, info,
-                                            onProgress = { updateProgress = it },
-                                            onDone = { ok, _ -> updateState = if (ok) "done" else "error" }
+                                        updateDownloadedBytes = 0L
+                                        updateTotalBytes = 0L
+                                        updateSpeedBps = 0L
+                                        updatePhase = null
+                                        updateHandle = UpdateManager.downloadAndInstall(context, info,
+                                            onProgress = { p ->
+                                                updateProgress = p.percent
+                                                updateDownloadedBytes = p.bytesDownloaded
+                                                updateTotalBytes = p.totalBytes
+                                                updateSpeedBps = p.speedBytesPerSec
+                                                updatePhase = p.phase
+                                            },
+                                            onDone = { ok, msg ->
+                                                updateHandle = null
+                                                updateDoneMessage = msg
+                                                updateState = when {
+                                                    ok -> "done"
+                                                    msg.contains("أُلغي") -> "found"
+                                                    else -> "error"
+                                                }
+                                            }
                                         )
                                     }
                                 },
@@ -739,6 +773,17 @@ fun SettingsScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                             ) {
                                 Text("تحديث الآن", color = Color.White, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (updateState == "downloading") {
+                            OutlinedButton(
+                                onClick = { updateHandle?.cancel() },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("إلغاء", color = Color(0xFFEF4444), fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         } else if (updateState == null || updateState == "none" || updateState == "error") {
                             Text(
@@ -762,8 +807,16 @@ fun SettingsScreen(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("حجم التحديث", color = Color(0xFF94A3B8), fontFamily = NotoSansFont, fontSize = 11.sp)
-                                    Text(UpdateManager.formatSize(u.apkSize), color = GoldPrimary, fontFamily = NotoSansFont, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = if (u.deltaUrl != null && u.deltaSize > 0) "حجم التحديث (دلتا متوقعة)" else "حجم التحديث",
+                                        color = Color(0xFF94A3B8), fontFamily = NotoSansFont, fontSize = 11.sp
+                                    )
+                                    Text(
+                                        text = if (u.deltaUrl != null && u.deltaSize > 0)
+                                            "${UpdateManager.formatSize(u.deltaSize)} (كامل: ${UpdateManager.formatSize(u.apkSize)})"
+                                        else UpdateManager.formatSize(u.apkSize),
+                                        color = GoldPrimary, fontFamily = NotoSansFont, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                             if (u.releaseNotes.isNotBlank()) {
@@ -779,12 +832,23 @@ fun SettingsScreen(
                         }
                         if (updateState == "downloading") {
                             Spacer(modifier = Modifier.height(10.dp))
-                            LinearProgressIndicator(
-                                progress = { (updateProgress / 100f).coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth().height(6.dp),
-                                color = Color(0xFF10B981),
-                                trackColor = Color(0xFF1E293B)
-                            )
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                LinearProgressIndicator(
+                                    progress = { (updateProgress / 100f).coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth().height(18.dp).clip(RoundedCornerShape(6.dp)),
+                                    color = Color(0xFF10B981),
+                                    trackColor = Color(0xFF1E293B)
+                                )
+                                // عداد رقمي حي فوق الشريط — نسبة % واضحة أثناء التنزيل
+                                Text(
+                                    text = "$updateProgress٪",
+                                    color = Color.White,
+                                    fontFamily = NotoSansFont,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
                         }
                     }
                 }
