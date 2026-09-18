@@ -52,7 +52,7 @@ enum class DashboardSection {
     MAIN, REQUESTS, SYSTEM_CONTROLS, NOTIFICATIONS, USERS, STATS, LOGS,
     CRASH_LOGS, ACCOUNT_SETTINGS, PROMO_CODES, REVENUE, DEV_STUDIO_SIGNATURE,
     AGENCY_MONETIZATION, APP_DOCTOR, STYLE_BRAIN,
-    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, DIAGNOSTICS
+    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, DIAGNOSTICS, BUILD_CENTER
 }
 
 data class DevUser(
@@ -157,19 +157,20 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             DashboardSection.USERS -> "إدارة الحسابات"
                             DashboardSection.STATS -> "الإحصائيات المباشرة"
                             DashboardSection.LOGS -> "سجلات النظام (Logs)"
-                            DashboardSection.CRASH_LOGS -> "سجل الانهيارات 🛡️"
+                            DashboardSection.CRASH_LOGS -> "سجل الانهيارات"
                             DashboardSection.ACCOUNT_SETTINGS -> "إعدادات حساب المطور"
                             DashboardSection.PROMO_CODES -> "المكافآت والأكواد"
                             DashboardSection.REVENUE -> "المبيعات والإيرادات"
-                            DashboardSection.AUDIT_LOG -> "سجل التدقيق 📋"
-                            DashboardSection.BACKUP -> "نسخ احتياطي واسترجاع 📦"
-                            DashboardSection.DEV_STUDIO_SIGNATURE -> "استوديو إنتاج المطور وتوقيع الفيديوهات ✦"
-                            DashboardSection.AGENCY_MONETIZATION -> "استوديو وكالة الأرباح والخدمات المدفوعة 💰"
-                            DashboardSection.APP_DOCTOR -> "طبيب التطبيق 🩺"
-                            DashboardSection.STYLE_BRAIN -> "عقل الأساليب 🧠"
-                            DashboardSection.API_KEYS -> "مفاتيح API 🔑"
-                            DashboardSection.PRODUCTION_PIPELINE -> "مسار الإنتاج 🎬"
-                            DashboardSection.DIAGNOSTICS -> "تشخيص شامل 🏥"
+                            DashboardSection.AUDIT_LOG -> "سجل التدقيق"
+                            DashboardSection.BACKUP -> "نسخ احتياطي واسترجاع"
+                            DashboardSection.DEV_STUDIO_SIGNATURE -> "استوديو المطور والتوقيع"
+                            DashboardSection.AGENCY_MONETIZATION -> "وكالة الأرباح والخدمات"
+                            DashboardSection.APP_DOCTOR -> "طبيب التطبيق"
+                            DashboardSection.STYLE_BRAIN -> "عقل الأساليب"
+                            DashboardSection.API_KEYS -> "مفاتيح API"
+                            DashboardSection.PRODUCTION_PIPELINE -> "مسار الإنتاج"
+                            DashboardSection.DIAGNOSTICS -> "تشخيص شامل"
+                            DashboardSection.BUILD_CENTER -> "مركز البناء"
                         }, 
                         color = GoldPrimary, 
                         fontWeight = FontWeight.Bold, 
@@ -312,6 +313,7 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                         onBackup = { currentSection = DashboardSection.BACKUP },
                         onProductionPipeline = { currentSection = DashboardSection.PRODUCTION_PIPELINE },
                         onDiagnostics = { currentSection = DashboardSection.DIAGNOSTICS },
+                        onBuildCenter = { currentSection = DashboardSection.BUILD_CENTER },
                         userCount = devUsers.size
                     )
                 }
@@ -377,6 +379,9 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 DashboardSection.DIAGNOSTICS -> {
                     DiagnosticsDashboardSection()
                 }
+                DashboardSection.BUILD_CENTER -> {
+                    BuildCenterSection(context = context)
+                }
             }
         }
     }
@@ -403,6 +408,7 @@ onAppDoctor: () -> Unit,
                         onBackup: () -> Unit = {},
                         onProductionPipeline: () -> Unit = {},
                         onDiagnostics: () -> Unit = {},
+                        onBuildCenter: () -> Unit = {},
                         userCount: Int = 0
                     ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -475,7 +481,7 @@ onAppDoctor: () -> Unit,
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (isGridOnline) "الإنترنت متصل 🟢" else "انقطع الاتصال 🔴", 
+                                    text = if (isGridOnline) "متصل" else "غير متصل", 
                                     color = if (isGridOnline) Color(0xFF10B981) else Color(0xFFEF4444), 
                                     fontFamily = CairoFont, 
                                     fontWeight = FontWeight.Bold, 
@@ -525,14 +531,15 @@ onAppDoctor: () -> Unit,
             Quad("إعدادات حساب المطور", Icons.Default.ManageAccounts, Cyan, onAccountSettings, "النظام والإعدادات"),
             Quad("مفاتيح API", Icons.Default.VpnKey, Cyan, onApiKeys, "النظام والإعدادات"),
             Quad("سجل التدقيق", Icons.Default.History, Violet, onAuditLog, "النظام والإعدادات"),
-            Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup, "النظام والإعدادات")
+            Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup, "النظام والإعدادات"),
+            Quad("مركز البناء", Icons.Default.Construction, Amber, onBuildCenter, "النظام والإعدادات")
         )
         val grouped = items.groupBy { it.group }.toList()
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {

@@ -47,14 +47,13 @@ object UpdateManager {
     /**
      * يتحقق من وجود تحديث. يُرجع null إذا لم يكن هناك جديد.
      */
-    suspend fun checkForUpdate(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdate(context: Context, force: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val prefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
             val lastCheck = prefs.getLong("update_last_check", 0)
-            val lastKnownCode = prefs.getInt("update_last_version_code", 0)
 
-            // لا تحقق كل مرة (6 ساعات بين كل فحص)
-            if (System.currentTimeMillis() - lastCheck < CHECK_INTERVAL_MS) {
+            // لا تحقق كل مرة (6 ساعات بين كل فحص) — إلا عند الضغط اليدوي
+            if (!force && System.currentTimeMillis() - lastCheck < CHECK_INTERVAL_MS) {
                 Log.d(TAG, "Skipping check — last check was ${(System.currentTimeMillis() - lastCheck) / 1000 / 60}min ago")
                 return@withContext null
             }
@@ -149,19 +148,17 @@ object UpdateManager {
         context: Context,
         update: UpdateInfo,
         onProgress: (Int) -> Unit = {},
-        onDone: (Boolean, String) -> Unit = { _, _ -> }
+        onDone: (Boolean, String) -> Unit = { _, _ -> },
+        authToken: String? = null
     ) {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
 
-                // ملاحظة صدق: ترقيع delta يحتاج xdelta3/bspatch وهما غير موجودين على أندرويد،
-                // فالمسار الوحيد العامل هو APK الكامل. أُزيلت محاولة الـ delta الوهمية.
-                // ── Full APK ──
                 onProgress(0)
                 Log.d(TAG, "Downloading full APK (${formatSize(update.apkSize)})...")
 
-                val apkFile = downloadFile(update.apkUrl, updatesDir, "qabas-${update.versionName}.apk") { pct ->
+                val apkFile = downloadFile(update.apkUrl, updatesDir, "qabas-${update.versionName}.apk", authToken) { pct ->
                     onProgress(pct)
                 }
 
@@ -188,52 +185,23 @@ object UpdateManager {
 
     // ──────────────── دوال مساعدة ────────────────
 
-    private fun applyDeltaPatch(oldApk: File, patchFile: File, newApk: File): Boolean {
-        return try {
-            // محاولة عبر xdelta3 native (إن وُجد على الجهاز)
-            val process = ProcessBuilder(
-                "xdelta3", "-d",
-                "-s", oldApk.absolutePath,
-                patchFile.absolutePath,
-                newApk.absolutePath
-            ).redirectErrorStream(true).start()
-
-            val exitCode = process.waitFor()
-            if (exitCode == 0 && newApk.exists()) {
-                Log.d(TAG, "Delta patch applied successfully via xdelta3")
-                return true
-            }
-
-            // fallback: try bspatch
-            val bspatch = ProcessBuilder(
-                "bspatch",
-                oldApk.absolutePath,
-                newApk.absolutePath,
-                patchFile.absolutePath
-            ).redirectErrorStream(true).start()
-
-            val bsExit = bspatch.waitFor()
-            if (bsExit == 0 && newApk.exists()) {
-                Log.d(TAG, "Delta patch applied successfully via bspatch")
-                return true
-            }
-
-            Log.w(TAG, "No patch tool available (xdelta3/bspatch)")
-            false
-        } catch (e: Exception) {
-            Log.w(TAG, "Patch application failed: ${e.message}")
-            false
-        }
-    }
-
     private fun downloadFile(
         url: String,
         destDir: File,
         fileName: String,
+        authToken: String? = null,
         onProgress: (Int) -> Unit
     ): File? {
         return try {
-            val request = Request.Builder().url(url).build()
+            val builder = Request.Builder().url(url)
+            if (!authToken.isNullOrBlank()) {
+                // للمستودعات الخاصة: رابط API للأصل يتطلب التوكن مع قبول الثنائي
+                builder.header("Authorization", "Bearer $authToken")
+                if (url.contains("/releases/assets/")) {
+                    builder.header("Accept", "application/octet-stream")
+                }
+            }
+            val request = builder.build()
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) return null
 
@@ -259,15 +227,6 @@ object UpdateManager {
             file
         } catch (e: Exception) {
             Log.e(TAG, "Download failed: ${e.message}")
-            null
-        }
-    }
-
-    private fun getCurrentApkPath(context: Context): String? {
-        return try {
-            context.packageManager.getPackageInfo(context.packageName, 0)
-                .applicationInfo?.sourceDir
-        } catch (e: Exception) {
             null
         }
     }
@@ -314,14 +273,13 @@ object UpdateManager {
     }
 
     private fun parseVersionCode(tag: String): Int {
-        // "v1.2.3" → 10203
-        val clean = tag.removePrefix("v")
+        // "v1.2.3" → 10203 — آمن ضد الوسوم الغريبة (لا !!)
+        val clean = tag.removePrefix("v").trim()
         val parts = clean.split(".")
-        return when (parts.size) {
-            3 -> parts[0].toIntOrNull()!! * 10000 + parts[1].toIntOrNull()!! * 100 + parts[2].toIntOrNull()!!
-            2 -> parts[0].toIntOrNull()!! * 10000 + parts[1].toIntOrNull()!! * 100
-            else -> parts.getOrElse(0) { "0" }.toIntOrNull() ?: 0
-        }
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: return 0
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        return major * 10000 + minor * 100 + patch
     }
 
     fun formatSize(bytes: Long): String = when {

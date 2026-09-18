@@ -632,16 +632,22 @@ fun SettingsScreen(
                     DoctorPulse()
                 }
 
-                // ── زر فحص التحديثات ──
+                // ── بطاقة التحديثات ──
                 HorizontalDivider(color = Color(0xFF222222), modifier = Modifier.padding(vertical = 10.dp))
 
+                val updateAccent = when (updateState) {
+                    "found", "downloading", "done", "none" -> Color(0xFF10B981)
+                    "checking..." -> AiViolet
+                    "error" -> Color(0xFFF97316)
+                    else -> GoldPrimary
+                }
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable(enabled = updateState != "checking...") {
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = updateState != "checking..." && updateState != "downloading") {
                         updateState = "checking..."
                         updateProgress = 0
                         coroutineScope.launch {
                             try {
-                                val info = UpdateManager.checkForUpdate(context)
+                                val info = UpdateManager.checkForUpdate(context, force = true)
                                 if (info != null) {
                                     updateInfo = info
                                     updateState = "found"
@@ -653,62 +659,67 @@ fun SettingsScreen(
                             }
                         }
                     },
-                    color = when (updateState) {
-                        "found" -> Color(0xFF10B981).copy(alpha = 0.1f)
-                        "checking..." -> AiViolet.copy(alpha = 0.1f)
-                        else -> Color(0xFF1A1F2E)
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, when (updateState) {
-                        "found" -> Color(0xFF10B981).copy(alpha = 0.5f)
-                        "checking..." -> AiViolet.copy(alpha = 0.5f)
-                        else -> Color(0xFF334155)
-                    })
+                    shape = RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, updateAccent.copy(alpha = 0.45f)),
+                    color = Color(0xFF111827)
                 ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = when (updateState) {
-                                    "found" -> Icons.Default.SystemUpdate
-                                    "checking..." -> Icons.Default.Sync
-                                    "none" -> Icons.Default.CheckCircle
-                                    "error" -> Icons.Default.ErrorOutline
-                                    else -> Icons.Default.SystemUpdate
-                                },
-                                contentDescription = null,
-                                tint = when (updateState) {
-                                    "found" -> Color(0xFF10B981)
-                                    "checking..." -> AiViolet
-                                    "none" -> Color(0xFF10B981)
-                                    "error" -> Color(0xFFF97316)
-                                    else -> GoldPrimary
-                                },
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Surface(
+                                color = updateAccent.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = when (updateState) {
+                                        "found" -> Icons.Default.SystemUpdate
+                                        "checking..." -> Icons.Default.Sync
+                                        "downloading" -> Icons.Default.Download
+                                        "done" -> Icons.Default.CheckCircle
+                                        "none" -> Icons.Default.CheckCircle
+                                        "error" -> Icons.Default.ErrorOutline
+                                        else -> Icons.Default.CloudDownload
+                                    },
+                                    contentDescription = null,
+                                    tint = updateAccent,
+                                    modifier = Modifier.padding(8.dp).size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = when (updateState) {
-                                        "checking..." -> "جاري الفحص..."
-                                        "found" -> "تحديث متاح: v${updateInfo?.versionName}"
-                                        "none" -> "أنت تستخدم أحدث إصدار ✓"
-                                        "error" -> "تعذر الفحص — اضغط للمحاولة"
-                                        else -> "فحص التديثات"
+                                        "checking..." -> "جاري فحص التحديثات..."
+                                        "found" -> "تحديث جديد متاح"
+                                        "none" -> "نسختك محدّثة"
+                                        "error" -> "تعذّر الاتصال بالخادم"
+                                        "downloading" -> "جاري تنزيل التحديث..."
+                                        "done" -> "اكتمل التنزيل"
+                                        else -> "التحديثات"
                                     },
                                     color = Color.White,
                                     fontFamily = CairoFont,
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                if (updateState == "found" && updateInfo != null) {
-                                    val u = updateInfo!!
-                                    val sizeText = if (u.deltaUrl != null) "فقط ${UpdateManager.formatSize(u.deltaSize)} (ملف صغير)" else UpdateManager.formatSize(u.apkSize)
-                                    Text("الحجم: $sizeText", color = GoldPrimary, fontFamily = NotoSansFont, fontSize = 10.sp)
-                                }
+                                Text(
+                                    text = when (updateState) {
+                                        "found" -> "v${BuildConfig.VERSION_NAME} ← v${updateInfo?.versionName}"
+                                        "none" -> "v${BuildConfig.VERSION_NAME} • الأحدث ✓"
+                                        "error" -> "تحقق من الإنترنت ثم أعد المحاولة"
+                                        "downloading" -> "$updateProgress٪ من ${updateInfo?.let { UpdateManager.formatSize(it.apkSize) } ?: ""}"
+                                        "done" -> "أكمل التثبيت من شاشة النظام"
+                                        "checking..." -> "نقارن نسختك مع آخر إصدار على GitHub"
+                                        else -> "آخر فحص يقارن نسختك مع GitHub Releases"
+                                    },
+                                    color = Color(0xFF94A3B8),
+                                    fontFamily = NotoSansFont,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                         if (updateState == "found") {
@@ -719,27 +730,61 @@ fun SettingsScreen(
                                         updateProgress = 0
                                         UpdateManager.downloadAndInstall(context, info,
                                             onProgress = { updateProgress = it },
-                                            onDone = { ok, msg -> updateState = if (ok) "done" else "error" }
+                                            onDone = { ok, _ -> updateState = if (ok) "done" else "error" }
                                         )
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                             ) {
-                                Text("تحديث", color = Color.White, fontFamily = CairoFont, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("تحديث الآن", color = Color.White, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (updateState == null || updateState == "none" || updateState == "error") {
+                            Text(
+                                text = if (updateState == "error") "إعادة المحاولة" else "فحص",
+                                color = updateAccent,
+                                fontFamily = CairoFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        }
+                        if (updateState == "found" && updateInfo != null) {
+                            val u = updateInfo!!
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                color = Color(0xFF1A1F2E),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("حجم التحديث", color = Color(0xFF94A3B8), fontFamily = NotoSansFont, fontSize = 11.sp)
+                                    Text(UpdateManager.formatSize(u.apkSize), color = GoldPrimary, fontFamily = NotoSansFont, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (u.releaseNotes.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = u.releaseNotes.take(220),
+                                    color = Color(0xFFCBD5E1),
+                                    fontFamily = NotoSansFont,
+                                    fontSize = 11.sp,
+                                    maxLines = 3
+                                )
                             }
                         }
                         if (updateState == "downloading") {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                LinearProgressIndicator(
-                                    progress = { updateProgress / 100f },
-                                    modifier = Modifier.width(60.dp).height(4.dp),
-                                    color = AiViolet,
-                                    trackColor = Color(0xFF1A1F2E)
-                                )
-                                Text("${updateProgress}%", color = AiViolet, fontFamily = NotoSansFont, fontSize = 9.sp)
-                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LinearProgressIndicator(
+                                progress = { (updateProgress / 100f).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth().height(6.dp),
+                                color = Color(0xFF10B981),
+                                trackColor = Color(0xFF1E293B)
+                            )
                         }
                     }
                 }
