@@ -183,7 +183,7 @@ jobs:
           if [ -n "$COMMITS_SINCE_TAG" ]; then
             RELEASE_NOTES="$RELEASE_NOTES
             التغييرات:
-$COMMITS_SINCE_TAG"
+            $COMMITS_SINCE_TAG"
           fi
 
           # احذف Release cũ بنفس الـ tag لو موجود
