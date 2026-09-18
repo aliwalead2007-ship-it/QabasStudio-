@@ -349,7 +349,7 @@
 | عنصر | ماذا أُنجز |
 |-----|------------|
 | `AiOperatorEngine.kt` (جديد) | `enum class OperatorKind { STATUS, DIAGNOSE, SCRIPT, CODE_HINT, CHAT }` + `data class OperatorIntent(kind, order, topic="")` + `object AiOperatorRouter` فيه `classify(order)` (ترتيب أولوية حتمي: STATUS → DIAGNOSE → SCRIPT → CODE_HINT → CHAT) و`suspend fun execute(context, intent, onProgress)` يُنفّذ الفعل فعلياً ويُرجع نتيجة حقيقية — لا نجاح وهمي. |
-| `AiEditorSection.kt` | تبديل وضع بين «تشغيل في التطبيق» (افتراضي) و«تحرير الشيفرة»؛ في وضع التشغيل: `operatorSend(order)` — «افحص/طبيب/صحة» → `AppSelfDoctor.runFullDiagnosis(context)` فعلياً مع عرض `DoctorReport`، «سكريبت/فيديو …» → `AppServices.generateScript(idea)` وعرض المشاهد، «الحالة/الجهاز» → تقرير أرقام حقيقية (StatFs/Runtime/BuildConfig)، وإلا محادثة مجانية؛ أمثلة جاهزة قبل حقل الإدخال. وضع تحرير الشيفرة لم يتأثر. |
+| `AiEditorSection.kt` | تبديل وضع بين «تشغيل في التطبيق» (افتراضي) و«تحرير الشيفرة»؛ في وضع التشغيل: `operatorSend(order)` — «افحص/طبيب/صحة» → `AppSelfDoctor.runFullDiagnosis(context)` فعلياً مع عرض `DoctorReport`، «سكريبت/فيديو …» → `AppServices.generateScript` وعرض المشاهد، «الحالة/الجهاز» → أرقام حقيقية (StatFs/Runtime/BuildConfig)، «الإعدادات/المشاريع/القرآن/الملف الشخصي…» → تنقّل فعلي داخل التطبيق عبر `onNavigateTo`، وإلا محادثة مجانية عبر `PollinationsTextService` (بلا مفتاح). وضع تحرير الشيفرة لم يتأثر. |
 | الفكرة | المستخدم يكتب أمراً عربياً فينفّذه التطبيق فعلاً داخل نفسه (لا مجرد تعديل كود عبر GitHub)؛ ما لا يمكن تنفيذه حقيقةً يُوجَّه بصدق لمسار «تحرير الشيفرة» (GitHub → CI → APK) بدل ادعاء التنفيذ. |
 
 ---
@@ -490,7 +490,7 @@ app/src/main/assets/audio/entry_ayah_ruj3a.m4a
 > - **`ProfileScreen.kt`**: الشارات والإحصائيات تعتمد على المشاريع والمنشورات الحقيقية فقط. حُذف زر "تصفير الإحصائيات" العشوائي.
 > **الآن:** التطبيق يعمل مجانياً 100% + بلا إنترنت + بلا مفاتيح لأغلب الوظائف. الطبقات السحابية اختيارية فقط.
 > **إصلاحات بناء:** `JitPack` في `settings.gradle.kts` + `COVERR_API_KEY` في `.env.example` — البناء المحلي يحتاج `:app:assembleDebug` لاختبار.
-> **«المحرر» — وضع التشغيل الحقيقي (سبتمبر 2026):** `AiOperatorEngine.kt` جديد (`OperatorKind` + `OperatorIntent` + `AiOperatorRouter.classify/execute` بأولوية STATUS → DIAGNOSE → SCRIPT → CODE_HINT → CHAT) و`AiEditorSection.kt` صار بوضعين: «تشغيل في التطبيق» (افتراضي) ينفّذ الأمر العربي فعلاً داخل التطبيق — «افحص» → `AppSelfDoctor.runFullDiagnosis`، «سكريبت عن …» → `AppServices.generateScript`، «الحالة» → أرقام جهاز حقيقية (StatFs/Runtime/BuildConfig)، وإلا محادثة مجانية — و«تحرير الشيفرة» (مسار GitHub/CI) لم يتأثر. **ينتظر التحقق بـ APK جديد** (لا JDK/SDK محلياً).
+> **«المحرر» — وضع التشغيل الحقيقي (سبتمبر 2026):** `AiOperatorEngine.kt` جديد + `AiEditorSection.kt` بوضعين؛ «تشغيل في التطبيق» ينفّذ الأمر العربي فعلاً (تشخيص، توليد سكربت، أرقام جهاز) مع تنقّل فعلي بين الأقسام، ومحادثة مجانية عبر `PollinationsTextService` (بلا مفتاح)؛ «تحرير الشيفرة» (GitHub/CI) لم يتأثر.
 
  <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker

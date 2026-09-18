@@ -1442,7 +1442,16 @@ object AppServices {
             }
         }
 
-        // 1) llama.cpp محلي (مجاني، offline) للسكربت
+        // 1) Pollinations — نموذج نصي بلا مفتاح (يُجرَّب أولاً)
+        val pollScript = try {
+            PollinationsTextService.generateScript(idea, finalStyleDescription, contentType, contentTone)
+        } catch (e: Exception) { null }
+        if (pollScript != null && pollScript.size >= 2) {
+            SystemLogsManager.addLog("INFO", "تم توليد السكربت بـ Pollinations (بلا مفتاح) ✅", Color(0xFF10B981))
+            return pollScript
+        }
+
+        // 2) llama.cpp محلي (مجاني، offline) للسكربت
         val localScript = try {
             LlamaCppService.generateScriptLocal(idea, finalStyleDescription, contentType, contentTone)
         } catch (e: Exception) {
@@ -1454,7 +1463,7 @@ object AppServices {
             return localScript
         }
 
-        // 2) السحابي: OpenAI → Groq → Gemini
+        // 3) السحابي: Gemini
         return RealGeminiService.generateScript(idea, finalStyleDescription, contentType, contentTone)
     }
 
@@ -1466,7 +1475,16 @@ object AppServices {
         messages: List<Pair<Boolean, String>>,
         customSystemInstruction: String? = null
     ): String {
-        // 1) llama.cpp محلي للمحادثات السريعة
+        // 1) Pollinations — نموذج نصي بلا مفتاح (يُجرَّب أولاً)
+        if (messages.size == 1) {
+            val pollResponse = try { PollinationsTextService.chat(messages[0].second) } catch (e: Exception) { null }
+            if (!pollResponse.isNullOrBlank()) {
+                SystemLogsManager.addLog("INFO", "رد محادثة بـ Pollinations (بلا مفتاح) ✅", Color(0xFF10B981))
+                return pollResponse
+            }
+        }
+
+        // 2) llama.cpp محلي للمحادثات السريعة
         if (messages.size == 1) {
             val localResponse = try {
                 LlamaCppService.generate(messages[0].second, maxTokens = 256)
@@ -1490,7 +1508,14 @@ object AppServices {
     }
 
     private suspend fun executeShortTaskWithFallback(prompt: String): String {
-        // 1) llama.cpp محلي للمهام القصيرة
+        // 1) Pollinations — نموذج نصي بلا مفتاح (يُجرَّب أولاً)
+        val pollResponse = try { PollinationsTextService.chat(prompt) } catch (e: Exception) { null }
+        if (!pollResponse.isNullOrBlank()) {
+            SystemLogsManager.addLog("INFO", "مهمة قصيرة بـ Pollinations (بلا مفتاح) ✅", Color(0xFF10B981))
+            return pollResponse
+        }
+
+        // 2) llama.cpp محلي للمهام القصيرة
         val localResponse = try {
             LlamaCppService.generate(prompt, maxTokens = 256, temperature = 0.5f)
         } catch (e: Exception) { null }

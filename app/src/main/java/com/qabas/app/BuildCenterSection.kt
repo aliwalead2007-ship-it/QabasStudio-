@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
  * رمز PAT يُحفظ على الجهاز فقط. القراءة العامة تعمل بدونه.
  */
 @Composable
-fun BuildCenterSection(context: Context) {
+fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) {
     val prefs = remember { context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
     val client = remember {
@@ -636,7 +636,8 @@ fun BuildCenterSection(context: Context) {
                     repo = repo.trim(),
                     token = token.trim(),
                     onFileCommitted = { refreshAll() },
-                    onRequestBuild = { tab = 0; triggerBuild() }
+                    onRequestBuild = { tab = 0; triggerBuild() },
+                    onNavigateTo = onNavigateTo
                 )
             }
         }

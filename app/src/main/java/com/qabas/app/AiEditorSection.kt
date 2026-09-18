@@ -46,7 +46,8 @@ fun AiEditorSection(
     repo: String,
     token: String,
     onFileCommitted: () -> Unit,
-    onRequestBuild: () -> Unit
+    onRequestBuild: () -> Unit,
+    onNavigateTo: (AppState) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val client = remember {
@@ -173,9 +174,29 @@ fun AiEditorSection(
     suspend fun llm7Chat(prompt: String, system: String): String? =
         openAiChat("https://api.llm7.io/v1/chat/completions", "unused", "fast", prompt, system)
 
+    private fun navigateFor(order: String): AppState? {
+        val lower = order.lowercase()
+        return when {
+            "الإعدادات" in lower || "settings" in lower -> AppState.SETTINGS
+            "الملف الشخصي" in lower || "profile" in lower -> AppState.PROFILE
+            "المشاريع" in lower || "المشروعات" in lower -> AppState.PROJECTS
+            "القرآن" in lower || "quran" in lower -> AppState.QURAN_HUB
+            "الرئيسية" in lower || "البيت" in lower || "home" in lower -> AppState.HOME
+            "الإشعارات" in lower || "notifications" in lower -> AppState.NOTIFICATIONS
+            "رجوع" in lower || "خلف" in lower -> AppState.HOME
+            else -> null
+        }
+    }
+
     fun operatorSend(order: String) {
         val finalOrder = order.trim()
         if (finalOrder.isBlank() || busy) return
+        val navTarget = navigateFor(finalOrder)
+        if (navTarget != null) {
+            messages = messages + ChatMsg(fromUser = true, text = finalOrder)
+            onNavigateTo(navTarget)
+            return
+        }
         input = ""
         lastOrder = finalOrder
         proposal = null

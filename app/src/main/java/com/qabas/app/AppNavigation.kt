@@ -181,7 +181,8 @@ fun AppNavigation(
         }
         AppState.DEVELOPER_DASHBOARD -> {
             DeveloperDashboardScreen(
-                onBack = { viewModel.updateState { copy(appState = AppState.HOME) } }
+                onBack = { viewModel.updateState { copy(appState = AppState.HOME) } },
+                onNavigateTo = { viewModel.updateState { copy(appState = it) } }
             )
         }
         AppState.QURAN_HUB -> {

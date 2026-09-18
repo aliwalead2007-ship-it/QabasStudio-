@@ -107,7 +107,7 @@ object DevDashboardFormatters {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = {}) {
+fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = {}, onNavigateTo: (AppState) -> Unit = {}) {
     var currentSection by remember { mutableStateOf(DashboardSection.MAIN) }
 
     // حارس الوصول: اللوحة للمالك فقط (لا يُمنح علم is_developer افتراضياً لأجهزة جديدة)
@@ -386,7 +386,7 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                     DiagnosticsDashboardSection()
                 }
                 DashboardSection.BUILD_CENTER -> {
-                    BuildCenterSection(context = context)
+                    BuildCenterSection(context = context, onNavigateTo = onNavigateTo)
                 }
                 DashboardSection.HEALTH_CHECK -> {
                     LiveHealthCheckPanel()
