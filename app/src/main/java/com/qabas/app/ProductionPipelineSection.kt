@@ -1,6 +1,9 @@
 package com.qabas.app
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -19,7 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,13 +34,16 @@ import com.qabas.app.ui.theme.*
 import kotlinx.coroutines.isActive
 
 /**
- * قسم «مسار الإنتاج» في لوحة المطور — رصد احترافي حي لكل خطوة في مسار الإنتاج.
+ * قسم «مسار الإنتاج» في لوحة المطور — رصد احترافي حي لكل خطوة في مسار الإنتاج،
+ * مع طبيب تشخيص مدمج (PipelineDoctor) يترجم كل فشل إلى مشكلة + سبب + حل.
  *
  * المزايا:
- * - التقاط مباشر: يتحدث تلقائياً كل ثانيتين فتظهر الخطوات لحظة حدوثها أثناء الإنتاج
- * - بطاقة «آخر تشغيلة» مع شريط تدفق مرئي يوضح حالة كل مرحلة (تمت/فشلت/بديلة/معلقة)
- * - إحصاءات لكل مرحلة: معدل النجاح + متوسط المدة + عدد المحاولات
- * - سجل زمني مُجمّع حسب التشغيلة مع مدة كل خطوة
+ * - 🩺 تشخيص فوري لآخر تشغيلة: كل عطل يظهر كبطاقة مشكلة/سبب/حل، مع نسخ سريع للمشاركة.
+ * - 📊 أكثر المشاكل تكراراً عبر كل التشغيلات — لرصد الأعطال المزمنة لا العرضية.
+ * - التقاط مباشر: يتحدث تلقائياً كل ثانيتين فتظهر الخطوات لحظة حدوثها أثناء الإنتاج.
+ * - بطاقة «آخر تشغيلة» مع شريط تدفق مرئي يوضح حالة كل مرحلة (تمت/فشلت/بديلة/معلقة).
+ * - إحصاءات لكل مرحلة: معدل النجاح + متوسط المدة + عدد المحاولات.
+ * - سجل زمني مُجمّع حسب التشغيلة مع مدة كل خطوة.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +51,7 @@ fun ProductionPipelineSection(
     onBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val events = remember { mutableStateOf(ProductionPipelineTracker.getEvents(context)) }
 
     // التقاط مباشر: تحديث تلقائي كل ثانيتين فتُلتقط الخطوات لحظة وقوعها
@@ -57,6 +66,11 @@ fun ProductionPipelineSection(
     val avgDurations = remember(events.value) { ProductionPipelineTracker.getAvgDurationPerStage(context) }
     val runs = remember(events.value) { ProductionPipelineTracker.getRuns(context) }
     val latestRunEvents = remember(events.value) { ProductionPipelineTracker.getLatestRunEvents(context) }
+
+    val latestRunIssues = remember(latestRunEvents) { PipelineDoctor.analyze(latestRunEvents) }
+    val recurringIssues = remember(events.value) {
+        PipelineDoctor.analyze(events.value).filter { it.occurrences > 1 || it.severity == IssueSeverity.CRITICAL }.take(5)
+    }
 
     var selectedStage by remember { mutableStateOf<ProductionPipelineTracker.Stage?>(null) }
     val filteredEvents = if (selectedStage != null) events.value.filter { it.stage == selectedStage } else events.value
@@ -146,6 +160,123 @@ fun ProductionPipelineSection(
                 }
             }
 
+            // ── 🩺 تشخيص آخر تشغيلة: المشكلة + السبب + الحل ──
+            if (latestRunEvents.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "تشخيص آخر تشغيلة",
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = CairoFont
+                            )
+                        }
+                        if (latestRunIssues.isNotEmpty()) {
+                            Text(
+                                "نسخ تقرير كامل",
+                                color = GoldPrimary,
+                                fontSize = 10.sp,
+                                fontFamily = CairoFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.clickable {
+                                    val report = latestRunIssues.joinToString("\n\n---\n\n") { it.toShareText() }
+                                    clipboard.setText(AnnotatedString(report))
+                                }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                if (latestRunIssues.isEmpty()) {
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFF10B981).copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    "لا مشاكل مكتشفة في آخر تشغيلة — كل المراحل التي عملت اكتملت بلا أعطال.",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 11.sp,
+                                    fontFamily = CairoFont,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(latestRunIssues, key = { "diag_${it.id}" }) { issue ->
+                        DiagnosedIssueCard(issue, clipboard)
+                    }
+                }
+            }
+
+            // ── 📊 الأكثر تكراراً عبر كل التشغيلات ──
+            if (recurringIssues.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.History, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "أعطال متكررة عبر كل التشغيلات:",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            fontFamily = NotoSansFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                items(recurringIssues, key = { "recurring_${it.id}" }) { issue ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(issue.severity.colorHex).copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                issue.title,
+                                color = Color(issue.severity.colorHex),
+                                fontSize = 11.sp,
+                                fontFamily = CairoFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "×${issue.occurrences}",
+                                color = Color(issue.severity.colorHex),
+                                fontSize = 11.sp,
+                                fontFamily = NotoSansFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
             // ── بطاقة آخر تشغيلة + شريط تدفق المراحل ──
             item {
                 LatestRunCard(
@@ -215,18 +346,6 @@ fun ProductionPipelineSection(
                                     )
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "$rate% ($total)",
-                            color = when {
-                                rate >= 80 -> Color(0xFF10B981)
-                                rate >= 50 -> Color(0xFFF59E0B)
-                                else -> Color(0xFFEF4444)
-                            },
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = NotoSansFont
-                        )
                     } else {
                         Text("—", color = Color.Gray, fontSize = 11.sp, fontFamily = NotoSansFont)
                     }
@@ -311,6 +430,116 @@ fun ProductionPipelineSection(
 
             // Bottom spacing
             item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+    }
+}
+
+/** بطاقة مشكلة مُشخَّصة: العنوان + الخطورة + السبب + الحل، مع نسخ سريع. */
+@Composable
+private fun DiagnosedIssueCard(
+    issue: DiagnosedIssue,
+    clipboard: androidx.compose.ui.platform.ClipboardManager
+) {
+    var expanded by remember(issue.id) { mutableStateOf(true) }
+    val severityColor = Color(issue.severity.colorHex)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1320)),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, severityColor.copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Row(modifier = Modifier.weight(1f)) {
+                    Icon(
+                        if (issue.severity == IssueSeverity.CRITICAL) Icons.Default.ErrorOutline else Icons.Default.WarningAmber,
+                        contentDescription = null,
+                        tint = severityColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            issue.title,
+                            color = TextPrimary,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = CairoFont,
+                            lineHeight = 17.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(color = severityColor.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+                                Text(
+                                    issue.severity.label,
+                                    color = severityColor,
+                                    fontSize = 8.5.sp,
+                                    fontFamily = CairoFont,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("${issue.stage.label} · تكرر ${issue.occurrences} مرة", color = TextSecondary, fontSize = 9.sp, fontFamily = NotoSansFont)
+                        }
+                        if (issue.affectedScenes.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                "المشاهد المتأثرة: " + issue.affectedScenes.joinToString(", ") { (it + 1).toString() },
+                                color = GoldSecondary,
+                                fontSize = 9.sp,
+                                fontFamily = NotoSansFont
+                            )
+                        }
+                    }
+                }
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+                Column {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(color = Color.White.copy(alpha = 0.03f), shape = RoundedCornerShape(8.dp)) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("السبب المحتمل", color = severityColor, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = CairoFont)
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(issue.cause, color = TextPrimary, fontSize = 11.sp, fontFamily = CairoFont, lineHeight = 16.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(color = Color(0xFF10B981).copy(alpha = 0.06f), shape = RoundedCornerShape(8.dp)) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("الحل المقترح", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = CairoFont)
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(issue.solution, color = TextPrimary, fontSize = 11.sp, fontFamily = CairoFont, lineHeight = 16.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { clipboard.setText(AnnotatedString(issue.toShareText())) }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("نسخ هذه المشكلة", color = GoldPrimary, fontSize = 10.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -451,31 +680,30 @@ private fun LatestRunCard(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth().height(2.dp)
-                                        .background(if (i > 0) stageColor.copy(alpha = 0.35f) else Color.Transparent)
+                                        .background(Color(0xFF334155))
+                                        .align(Alignment.CenterStart)
                                 )
                             }
-                            Surface(
-                                shape = CircleShape,
-                                color = stageColor.copy(alpha = 0.18f),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    if (selectedStage == stage) 2.dp else 1.dp,
-                                    stageColor
-                                )
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(stageColor.copy(alpha = if (status != null) 1f else 0.25f)),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     "${i + 1}",
-                                    color = if (status == null) Color(0xFF64748B) else stageColor,
-                                    fontSize = 10.sp,
+                                    color = Color.White,
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = NotoSansFont,
-                                    modifier = Modifier.padding(8.dp)
+                                    fontFamily = NotoSansFont
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             stage.label,
-                            color = if (status == null) Color(0xFF475569) else stageColor,
+                            color = if (status != null) TextPrimary else Color.Gray.copy(alpha = 0.5f),
                             fontSize = 8.sp,
                             fontFamily = CairoFont,
                             maxLines = 2,
