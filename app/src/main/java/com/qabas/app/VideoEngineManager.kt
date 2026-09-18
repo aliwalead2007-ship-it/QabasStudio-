@@ -128,6 +128,7 @@ class VideoEngineManager(private val context: Context) {
                     Log.w(TAG, "Video processing job cancelled before scene $index")
                     return@withContext null
                 }
+                val scenePrepStartMs = System.currentTimeMillis()
 
                 // بصمة المشهد: إعادة استخدام المخزن عند عدم التغيير (ثوانٍ بدل دقائق)
                 val fingerprint = ProductionPowerKit.sceneFingerprint(scene, VideoProcessor.currentQualityPreset.label)
@@ -245,15 +246,20 @@ class VideoEngineManager(private val context: Context) {
                             "فشل توليد مشهد ${index + 1} من الوسائط — استخدام إطار سينمائي محلي",
                             Color(0xFFE8C547)
                         )
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.SCENE_PROCESSING, ProductionPipelineTracker.Result.FALLBACK, "مشهد ${index + 1}: إطار محلي بديل", "تعذر تجهيز الوسائط الأصلية", System.currentTimeMillis() - scenePrepStartMs, runId, index)
                         val solid = generateSolidColorVideo(
                             cacheDir, index, scene.durationInSeconds, resolvedStyleAnalysis, sceneLabel
                         )
                         videoReadyPath = solid.absolutePath
+                    } else {
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.SCENE_PROCESSING, ProductionPipelineTracker.Result.SUCCESS, "مشهد ${index + 1}: مرئيات جاهزة (${if (isImage) "صورة→فيديو" else "قص فيديو"})", mediaFile.name, System.currentTimeMillis() - scenePrepStartMs, runId, index)
                     }
 
                     // TTS — يُجمَّع لكل مشهد ثم يُدمج كمسار واحد موحد بعد الدمج (بلا تقطع).
                     // مهلة 60ث لكل مشهد: الفاشل يتحول لإطار ويُكمل الباقي بدل قتل المشروع.
                     val spokenArabicText = if (scene.title.isNotBlank()) scene.title else scene.description
+                    val ttsStartMs = System.currentTimeMillis()
+                    val ttsSource = if (preferGuaranteedPath) "AndroidTTS محلي" else "خدمة سحابية"
                     val perSceneAudio: String? = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
                         if (preferGuaranteedPath) {
                             try { AndroidTTSService.synthesizeSpeech(spokenArabicText) } catch (localTtsEx: Exception) {
@@ -271,6 +277,9 @@ class VideoEngineManager(private val context: Context) {
                     }
                     if (!perSceneAudio.isNullOrBlank() && File(perSceneAudio).exists() && File(perSceneAudio).length() > 1000) {
                         sceneAudioPaths.add(perSceneAudio)
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.TTS_GENERATION, ProductionPipelineTracker.Result.SUCCESS, "مشهد ${index + 1}: تعليق صوتي جاهز", ttsSource, System.currentTimeMillis() - ttsStartMs, runId, index)
+                    } else {
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.TTS_GENERATION, ProductionPipelineTracker.Result.FAILURE, "مشهد ${index + 1}: فشل توليد الصوت", "المسار: $ttsSource — سيستمر المشهد بلا تعليق", System.currentTimeMillis() - ttsStartMs, runId, index)
                     }
                     val videoWithAudioPath = videoReadyPath
 
@@ -295,8 +304,10 @@ class VideoEngineManager(private val context: Context) {
                         false
                     }
                     var scenePathAfterText = if (textSuccess && VideoProcessor.isValidVideoFile(textOverlayPath, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.TEXT_OVERLAY, ProductionPipelineTracker.Result.SUCCESS, "مشهد ${index + 1}: طبقة نص مطبقة", spokenArabicText.take(50), 0, runId, index)
                         textOverlayPath
                     } else {
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.TEXT_OVERLAY, ProductionPipelineTracker.Result.FALLBACK, "مشهد ${index + 1}: تخطي طبقة النص", "استمرار بلا كابشن", 0, runId, index)
                         videoWithAudioPath
                     }
 
@@ -316,12 +327,17 @@ class VideoEngineManager(private val context: Context) {
                         }
                         if (gradeOk && VideoProcessor.isValidVideoFile(gradedPath, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
                             scenePathAfterText = gradedPath
+                            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.COLOR_GRADING, ProductionPipelineTracker.Result.SUCCESS, "مشهد ${index + 1}: تلوين سينمائي مطبق", sceneFilter, 0, runId, index)
                             SystemLogsManager.addLog(
                                 "INFO",
                                 "تطبيق فلتر الاستوديو ($sceneFilter) على المشهد ${index + 1}",
                                 Color(0xFFE8C547)
                             )
+                        } else {
+                            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.COLOR_GRADING, ProductionPipelineTracker.Result.FALLBACK, "مشهد ${index + 1}: تعذر التلوين", "الاستمرار بدون فلتر", 0, runId, index)
                         }
+                    } else {
+                        ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.COLOR_GRADING, ProductionPipelineTracker.Result.SKIPPED, "مشهد ${index + 1}: بلا فلتر لوني", "", 0, runId, index)
                     }
 
                     processedVideoPaths.add(scenePathAfterText)

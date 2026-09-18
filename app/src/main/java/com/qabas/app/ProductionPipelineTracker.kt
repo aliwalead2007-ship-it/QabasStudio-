@@ -13,20 +13,41 @@ object ProductionPipelineTracker {
     private const val MAX_EVENTS = 200
 
     enum class Stage(val label: String) {
+        PIPELINE_START("بدء المسار"),
         IDEA_INPUT("إدخال الفكرة"),
         CONTENT_GUARD("فحص المحتوى"),
         STYLE_SELECTION("اختيار الأسلوب"),
         SCRIPT_GENERATION("توليد السكربت"),
-        SCENE_PROCESSING("معالجة المشاهد"),
         BROLL_FETCH("جلب B-Roll"),
+        SCENE_PROCESSING("تجهيز المشاهد"),
         TTS_GENERATION("توليد الصوت"),
-        FFmpeg_MERGE("دمج FFmpeg"),
         TEXT_OVERLAY("طبقة النص"),
         COLOR_GRADING("التلوين السينمائي"),
+        FFmpeg_MERGE("دمج FFmpeg"),
         VIDEO_ENGINE("محرك الفيديو"),
         EXPORT("التصدير النهائي"),
-        STYLE_FEEDBACK("تغذية الأسلوب")
+        STYLE_FEEDBACK("تغذية الأسلوب"),
+        PIPELINE_END("اكتمال المسار")
     }
+
+    /** ترتيب المراحل القياسي — يُستخدم لرسم شريط تدفق المسار في لوحة المطور. */
+    val CANONICAL_ORDER = listOf(
+        Stage.PIPELINE_START,
+        Stage.IDEA_INPUT,
+        Stage.CONTENT_GUARD,
+        Stage.STYLE_SELECTION,
+        Stage.SCRIPT_GENERATION,
+        Stage.BROLL_FETCH,
+        Stage.SCENE_PROCESSING,
+        Stage.TTS_GENERATION,
+        Stage.TEXT_OVERLAY,
+        Stage.COLOR_GRADING,
+        Stage.FFmpeg_MERGE,
+        Stage.VIDEO_ENGINE,
+        Stage.EXPORT,
+        Stage.STYLE_FEEDBACK,
+        Stage.PIPELINE_END
+    )
 
     enum class Result { SUCCESS, FAILURE, FALLBACK, SKIPPED, TIMEOUT }
 
@@ -114,6 +135,57 @@ object ProductionPipelineTracker {
     fun clearEvents(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().remove(KEY_EVENTS).apply()
+    }
+
+    /** ملخص تشغيلة إنتاج كاملة (runId واحد = فيديو واحد). */
+    data class RunSummary(
+        val runId: String,
+        val startTime: Long,
+        val endTime: Long,
+        val eventCount: Int,
+        val successCount: Int,
+        val failureCount: Int,
+        val fallbackCount: Int,
+        val hasFailure: Boolean,
+        val completed: Boolean
+    )
+
+    /** كل التشغيلات مرتبة من الأحدث للأقدم. */
+    fun getRuns(context: Context): List<RunSummary> {
+        val events = getEvents(context).sortedBy { it.timestamp }
+        val byRun = events.filter { it.runId.isNotBlank() }.groupBy { it.runId }
+        return byRun.map { (runId, evts) ->
+            RunSummary(
+                runId = runId,
+                startTime = evts.first().timestamp,
+                endTime = evts.last().timestamp,
+                eventCount = evts.size,
+                successCount = evts.count { it.result == Result.SUCCESS },
+                failureCount = evts.count { it.result == Result.FAILURE },
+                fallbackCount = evts.count { it.result == Result.FALLBACK },
+                hasFailure = evts.any { it.result == Result.FAILURE },
+                completed = evts.any { it.stage == Stage.PIPELINE_END }
+            )
+        }.sortedByDescending { it.startTime }
+    }
+
+    /** أحداث آخر تشغيلة (الأحدث زمنياً) بترتيبها الزمني التصاعدي. */
+    fun getLatestRunEvents(context: Context): List<PipelineEvent> {
+        val runs = getRuns(context)
+        if (runs.isEmpty()) return emptyList()
+        return getEvents(context).filter { it.runId == runs.first().runId }.sortedBy { it.timestamp }
+    }
+
+    /** متوسط مدة كل مرحلة (من الأحداث الناجحة ذات مدة مسجلة). */
+    fun getAvgDurationPerStage(context: Context): Map<Stage, Long> {
+        val events = getEvents(context)
+        val durations = mutableMapOf<Stage, MutableList<Long>>()
+        for (e in events) {
+            if (e.durationMs > 0) {
+                durations.getOrPut(e.stage) { mutableListOf() }.add(e.durationMs)
+            }
+        }
+        return durations.mapValues { (_, list) -> list.average().toLong() }
     }
 
     fun formatTimestamp(ts: Long): String {

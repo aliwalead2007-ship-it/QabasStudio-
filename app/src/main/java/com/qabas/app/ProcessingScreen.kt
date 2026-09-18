@@ -151,6 +151,8 @@ fun ProcessingScreen(
                 try { elapsedJobRef.value?.cancel() } catch (_: Exception) {}
                 return@LaunchedEffect
             }
+            val pipelineStartMs = System.currentTimeMillis()
+            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.PIPELINE_START, ProductionPipelineTracker.Result.SUCCESS, "بدء تشغيلة إنتاج جديدة", inputText.take(80), 0, pipelineRunId)
             pushActivity("بدء مسار الإنتاج — تهيئة العقل")
             notificationService.showProgressNotification(5, 100, Translator.tr("جاري تحضير السيناريو..."))
             currentStage = "prepare"
@@ -495,6 +497,7 @@ fun ProcessingScreen(
             } else processedScenes
 
             progress = 1.0f
+            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.PIPELINE_END, if (!isFailed && finalProducedFile != null && VideoProcessor.isValidVideoFile(finalProducedFile.absolutePath)) ProductionPipelineTracker.Result.SUCCESS else ProductionPipelineTracker.Result.FAILURE, if (!isFailed && finalProducedFile != null) "اكتملت التشغيلة بنجاح" else "انتهت التشغيلة بالفشل", "الملف: ${finalProducedFile?.name ?: "لا ملف"}", System.currentTimeMillis() - pipelineStartMs, pipelineRunId)
             if (!isFailed && finalProducedFile != null && VideoProcessor.isValidVideoFile(finalProducedFile.absolutePath)) {
                 statusText = if (finalProducedFile.name.startsWith("Qabas_Draft_")) Translator.tr("اكتمل كمسودة — تعذر جلب B-Roll حقيقي")
                 else Translator.tr("اكتملت المعالجة بنجاح!")
