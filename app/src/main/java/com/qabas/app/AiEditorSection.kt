@@ -75,6 +75,100 @@ fun AiEditorSection(
     var lastHttpCode by remember { mutableStateOf<Int?>(null) }
     val listState = rememberLazyListState()
 
+    // ── مستودع GitHub ──
+    var repoSubTab by remember { mutableStateOf(0) } // 0=files, 1=commits, 2=branches
+    var repoTree by remember { mutableStateOf<List<RepoFile>>(emptyList()) }
+    var repoTreeLoading by remember { mutableStateOf(false) }
+    var repoTreeError by remember { mutableStateOf<AiFailure?>(null) }
+    var repoPath by remember { mutableStateOf("") }
+    var repoCommits by remember { mutableStateOf<List<RepoCommitInfo>>(emptyList()) }
+    var commitsLoading by remember { mutableStateOf(false) }
+    var repoBranches by remember { mutableStateOf<List<RepoBranchInfo>>(emptyList()) }
+    var branchesLoading by remember { mutableStateOf(false) }
+    var newBranchName by remember { mutableStateOf("") }
+    var branchCreating by remember { mutableStateOf(false) }
+    var selectedRepoFile by remember { mutableStateOf<RepoFile?>(null) }
+    var fileContent by remember { mutableStateOf("") }
+    var fileContentLoading by remember { mutableStateOf(false) }
+
+    val repoClient = remember {
+        GitHubRepoClient(owner = owner, repo = repo, token = if (token.isNotBlank()) token else "")
+    }
+
+    suspend fun loadRepoTree(path: String = "") {
+        repoTreeLoading = true
+        repoTreeError = null
+        scope.launch {
+            val tree = repoClient.getTree(branch = "main", path = path)
+            withContext(Dispatchers.Main) {
+                repoTree = tree ?: emptyList()
+                repoTreeLoading = false
+                repoPath = path
+                repoTreeError = if (tree == null) AiFailure("تعذر تحميل المستودع", "تحقق من الرمز والإنترنت ثم أعد المحاولة.", retry = "tree") else null
+            }
+        }
+    }
+
+    suspend fun loadCommits() {
+        commitsLoading = true
+        scope.launch {
+            val commits = repoClient.getCommits()
+            withContext(Dispatchers.Main) {
+                repoCommits = commits ?: emptyList()
+                commitsLoading = false
+            }
+        }
+    }
+
+    suspend fun loadBranches() {
+        branchesLoading = true
+        scope.launch {
+            val branches = repoClient.getBranches()
+            withContext(Dispatchers.Main) {
+                repoBranches = branches ?: emptyList()
+                branchesLoading = false
+            }
+        }
+    }
+
+    suspend fun loadFileContent(file: RepoFile) {
+        fileContentLoading = true
+        scope.launch {
+            val content = repoClient.getFileContent(file.path)
+            withContext(Dispatchers.Main) {
+                fileContent = content?.let {
+                    if (content.encoding == "base64") {
+                        String(Base64.decode(content.content.replace("\\s".toRegex(), ""), Base64.DEFAULT), Charsets.UTF_8)
+                    } else content.content
+                } ?: ""
+                fileContentLoading = false
+                selectedRepoFile = file
+            }
+        }
+    }
+
+    suspend fun createBranch() {
+        if (newBranchName.isBlank()) return
+        branchCreating = true
+        scope.launch {
+            val sha = repoClient.getBranchSha()
+            val ok = sha?.let { repoClient.createBranch(newBranchName.trim(), it) } ?: false
+            withContext(Dispatchers.Main) {
+                branchCreating = false
+                if (ok) {
+                    loadBranches()
+                    newBranchName = ""
+                }
+            }
+        }
+    }
+
+    suspend fun refreshRepoData() {
+        loadRepoTree()
+        loadCommits()
+        loadBranches()
+    }
+
     suspend fun apiGet(path: String): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val builder = Request.Builder()
@@ -174,7 +268,7 @@ fun AiEditorSection(
     suspend fun llm7Chat(prompt: String, system: String): String? =
         openAiChat("https://api.llm7.io/v1/chat/completions", "unused", "fast", prompt, system)
 
-    private fun navigateFor(order: String): AppState? {
+    fun navigateFor(order: String): AppState? {
         val lower = order.lowercase()
         return when {
             "الإعدادات" in lower || "settings" in lower -> AppState.SETTINGS
@@ -373,12 +467,18 @@ fun AiEditorSection(
                     )
                     OperatorModeTab(
                         text = "تحرير الشيفرة",
-                        selected = !opMode,
-                        onClick = { opMode = false },
+                        selected = !opMode && repoSubTab == 0,
+                        onClick = { opMode = false; repoSubTab = 0 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    OperatorModeTab(
+                        text = "المستودع",
+                        selected = repoSubTab == 1 || repoSubTab == 2,
+                        onClick = { repoSubTab = 1; scope.launch { loadRepoTree(); loadCommits(); loadBranches() } },
                         modifier = Modifier.weight(1f)
                     )
                 }
-                if (!opMode) {
+                if (!opMode && repoSubTab == 0) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
                             value = filePath, onValueChange = { filePath = it },
@@ -398,12 +498,165 @@ fun AiEditorSection(
                 }
             }
         }
-        Text(
-            "المحادثة تعمل بلا مفتاح ذكاء اصطناعي (نموذج مجاني، ثم مفاتيحك إن وُجدت). الحفظ يحتاج رمز PAT بصلاحية Contents: Write.",
-            color = Color(0xFF10B981), fontFamily = NotoSansFont, fontSize = 11.sp
-        )
-        if (token.isBlank()) {
-            Text("تنبيه: بدون رمز PAT لن يعمل تحميل الملفات الخاصة ولا الحفظ.", color = Color(0xFFF59E0B), fontFamily = NotoSansFont, fontSize = 11.sp)
+        if (opMode) {
+            Text(
+                "المحادثة تعمل بلا مفتاح ذكاء اصطناعي (نموذج مجاني، ثم مفاتيحك إن وُجدت). الحفظ يحتاج رمز PAT بصلاحية Contents: Write.",
+                color = Color(0xFF10B981), fontFamily = NotoSansFont, fontSize = 11.sp
+            )
+            if (token.isBlank()) {
+                Text("تنبيه: بدون رمز PAT لن يعمل تحميل الملفات الخاصة ولا الحفظ.", color = Color(0xFFF59E0B), fontFamily = NotoSansFont, fontSize = 11.sp)
+            }
+        }
+
+        // ── المستودع ──
+        if (!opMode && repoSubTab != 0) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OperatorModeTab(
+                    text = "الملفات",
+                    selected = repoSubTab == 0,
+                    onClick = { repoSubTab = 0; scope.launch { loadRepoTree() } },
+                    modifier = Modifier.weight(1f)
+                )
+                OperatorModeTab(
+                    text = "التاريخ",
+                    selected = repoSubTab == 1,
+                    onClick = { repoSubTab = 1; scope.launch { loadCommits() } },
+                    modifier = Modifier.weight(1f)
+                )
+                OperatorModeTab(
+                    text = "الفروع",
+                    selected = repoSubTab == 2,
+                    onClick = { repoSubTab = 2; scope.launch { loadBranches() } },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            when (repoSubTab) {
+                0 -> {
+                    // Files tree
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = repoPath, onValueChange = { repoPath = it; scope.launch { loadRepoTree(repoPath) } },
+                            label = { Text("المسار", fontSize = 11.sp) }, singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(onClick = { scope.launch { loadRepoTree() } }, enabled = !repoTreeLoading, shape = RoundedCornerShape(10.dp)) {
+                            Text("🔄", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    if (repoTreeLoading) {
+                        Text("جاري تحميل المستودع...", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                    } else if (repoTreeError != null) {
+                        AiErrorCard(failure = repoTreeError!!, onRetry = { scope.launch { loadRepoTree() } }, onDismiss = { repoTreeError = null })
+                    } else {
+                        LazyColumn(state = rememberLazyListState(), modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            items(repoTree) { file ->
+                                val isDir = file.isDirectory
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            if (isDir) scope.launch { loadRepoTree(file.path) }
+                                            else scope.launch { loadFileContent(file) }
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        if (isDir) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                        contentDescription = null,
+                                        tint = if (isDir) GoldPrimary else TextSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(file.name, color = Color.White, fontFamily = CairoFont, fontSize = 12.sp)
+                                        if (file.size > 0 && !isDir) {
+                                            Text("${file.size / 1024} KB", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    // Commits
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { scope.launch { loadCommits() } },
+                            enabled = !commitsLoading,
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                            shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🔄 حدّث", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    if (commitsLoading) {
+                        Text("جاري تحميل التاريخ...", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                    } else if (repoCommits.isEmpty()) {
+                        Text("لا توجد سجلات.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            items(repoCommits) { commit ->
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = CardSurface),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(commit.sha.take(8), color = GoldPrimary, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 11.sp)
+                                        Text(commit.message.take(60), color = Color.White, fontFamily = CairoFont, fontSize = 12.sp, maxLines = 1)
+                                        Text("${commit.authorName} · ${commit.date.take(10)}", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                2 -> {
+                    // Branches
+                    if (branchesLoading) {
+                        Text("جاري تحميل الفروع...", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            items(repoBranches) { branch ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { scope.launch { loadRepoTree(); loadCommits() } }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(branch.name, color = if (branch.name == "main") GoldPrimary else Color.White, fontFamily = CairoFont, fontSize = 12.sp)
+                                    }
+                                    if (branch.name == "main") {
+                                        AiPill(text = "الرئيسي", tint = Color(0xFF10B981))
+                                    }
+                                }
+                            }
+                        }
+                        // Create branch section
+                        Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = newBranchName, onValueChange = { newBranchName = it },
+                                label = { Text("اسم الفرع الجديد", fontSize = 11.sp) }, singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = { scope.launch { createBranch() } },
+                                enabled = newBranchName.isNotBlank() && !branchCreating,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(if (branchCreating) "..." else "إنشاء", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // ── المحادثة ──
