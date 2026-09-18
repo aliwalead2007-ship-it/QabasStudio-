@@ -133,6 +133,14 @@
 | CI | تشغيل كامل أخضر بعد إصلاحين (capture TTS + قيم `.env.example`). |
 | `ApiKeysScreen.kt` / `ApiKeyValidator.kt` | إكمال خيارات المفاتيح المجانية: إضافة بطاقتي **Azure Speech (TTS)** (مع حقل المنطقة Region) و**ElevenLabs (TTS)** — وكلاهما يُقرآن فعلياً في `generateVoiceover` وكانا غائبين عن الواجهة — مع فحص اتصال حقيقي لكل منهما في `validateKey`، وإدراج المفتاحين والمنطقة في تصدير/استيراد النسخ الاحتياطي JSON، وإضافة بطاقة افتتاحية «**يعمل مجاناً دون أي مفتاح 🎉**» توضح أن التحليل المحلي + محرك النطق المدمج + FFmpeg تعمل بلا مفاتيح وبدون إنترنت، وأن بقية المفاتيح اختيارية. |
 
+### ز) إصلاح أخطاء مسار الإنتاج (سبتمبر 2026 — commit `aff4bbe`)
+
+| ملف | ماذا أُصلح |
+|-----|------------|
+| `ProcessingScreen.kt` | `processOneScene` كان يستخدم `scene.description` فقط في `AppServices.fetchMedia()` و`AppServices.generateVideo()` بدلاً من `"${scene.title} ${scene.description}"`. هذا يعني بحث الوسائط كان ناقصاً وقد يفوته محتوى يطابق العنوان فقط. الإصلاح يطابق سلوك `VideoEngineManager.processProject`. |
+| `CinematicExportScreen.kt` | `videoQuality = selectedQualityOption.title` كان يمرر النص `"1080p 60fps المعيار الذهبي"` بدلاً من اسم preset. `ProductionPowerKit.decideLevel` و`VideoProcessor.currentQualityPreset` يفحصان كلمات مفتاحية (`"High"`, `"Fast"`) — العنوان لا يحتوي عليها فكان الجودة دائماً `BALANCED` بدلاً من `HIGH` لـ `PRO_1080P`. الإصلاح: `videoQuality = selectedQualityOption.preset.name` |
+| `ProcessingScreen.kt` | تصحيح خطأ إملائي: `"فشل جبل + توليد"` → `"فشل جلب + توليد"` |
+
 ### و) تحسينات UI (سبتمبر 2026)
 
 | ملف | ماذا أُنجز |
@@ -341,6 +349,11 @@
 ## 4. الخطوة التالية الوحيدة الآن
 
 **بناء أخضر عبر Actions → تثبيت APK → اختبار شاشات FlowRow (الملف الشخصي/التجويد/الفهم/الهاشتاقات) + اختبار تصدير كامل على الجهاز** (بعد إصلاح تعطل الإنتاج ومهلة المحرك والدمج البديل وإصلاح التجميع أعلاه — الإصلاحات تحتاج APK جديداً ليصل الجهاز).
+
+**إصلاحات مسار الإنتاج (commit `aff4bbe`) تنتظر التحقق:**
+1. `processOneScene` الآن يستخدم `"${scene.title} ${scene.description}"` بدلاً من `scene.description` فقط — بحث وسائط أفضل
+2. `CinematicExportScreen` الآن يمرر `preset.name` بدلاً من `title` كـ `videoQuality` — جودة HIGH صحيحة لـ PRO_1080P
+3. تصحيح خطأ إملائي `فشل جبل` → `فشل جلب`
 
 **يعتمد على ما يبلّغ به المستخدم بعد التجربة:**
 
