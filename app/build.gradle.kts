@@ -169,8 +169,8 @@ dependencies {
   // ONNX Runtime for Kokoro TTS
   implementation(libs.onnx.runtime.android)
 
-  // llama.cpp for local LLM
-  implementation(libs.llama.cpp.android)
+  // ملاحظة: llama.cpp أُزيل (لا أرتيفاكت مستقر على JitPack) — LlamaCppService
+  // يعمل كـ stub آمن (يرجع null بلا موديل) وتتولى السحابة التوليد.
 
   implementation(platform(libs.supabase.bom))
   implementation(libs.supabase.postgrest)
