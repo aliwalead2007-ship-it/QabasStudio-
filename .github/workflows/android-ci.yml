@@ -110,7 +110,65 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # ── Delta Patch: ملف صغير بدل APK كامل (إصلاح سبتمبر 2026) ──
+
+      # ── بناء xdelta3 لأندرويد (arm64 + armv7) لتمكين التحديث الصغير على الجهاز ──
+      - name: Build xdelta3 for Android
+        if: success() && github.event_name == 'push'
+        run: |
+          set -e
+          echo "Installing NDK..."
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" 2>/dev/null || \
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;25.2.9519653" 2>/dev/null || true
+
+          NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
+            echo "⚠️ NDK not found — skipping Android xdelta3 build"
+            exit 0
+          fi
+          echo "Using NDK: $NDK_DIR"
+          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+          if [ ! -d "$TOOLCHAIN" ]; then
+            echo "⚠️ NDK toolchain missing"
+            exit 0
+          fi
+
+          mkdir -p /tmp/xdelta_android
+          cd /tmp/xdelta_android
+          curl -sL "https://github.com/jmacd/xdelta/archive/refs/tags/v3.1.0.tar.gz" -o src.tgz
+          tar -xzf src.tgz
+          SRC=$(find . -name 'xdelta3.c' | head -1 | xargs dirname)
+          cd "$SRC"
+
+          CFLAGS="-O2 -fPIE -pie -DXD3_USE_LARGEFILE64=1 -DREGRESSION_TEST=0 -DSECONDARY_DJW=1 -DSECONDARY_FGK=1 -DXD3_MAIN=1 -DNOT_COVER=1"
+
+          build_one() {
+            local ABI="$1"
+            local TRIPLE="$2"
+            local API="$3"
+            local OUT="/tmp/xdelta_android/xdelta3-${ABI}"
+            local CC="$TOOLCHAIN/bin/${TRIPLE}${API}-clang"
+            if [ ! -x "$CC" ]; then
+              echo "⚠️ Compiler not found: $CC"
+              return 0
+            fi
+            echo "Building xdelta3 for $ABI ..."
+            "$CC" $CFLAGS -o "$OUT" xdelta3.c -lm 2>&1 || {
+              echo "⚠️ Build failed for $ABI"
+              return 0
+            }
+            chmod +x "$OUT"
+            ls -la "$OUT"
+            file "$OUT" || true
+          }
+
+          build_one "arm64-v8a" "aarch64-linux-android" "24"
+          build_one "armeabi-v7a" "armv7a-linux-androideabi" "24"
+          build_one "x86_64" "x86_64-linux-android" "24"
+
+          echo "Built binaries:"
+          ls -la /tmp/xdelta_android/xdelta3-* 2>/dev/null || echo "(none)"
+
+            # ── Delta Patch: ملف صغير بدل APK كامل (إصلاح سبتمبر 2026) ──
       - name: Generate delta patch & publish release
         if: success() && github.event_name == 'push'
         env:
@@ -232,6 +290,14 @@ $COMMITS_SINCE_TAG"
           else
             echo "ℹ️ No delta uploaded (full APK only)"
           fi
+
+          # ارفع ثنائيات xdelta3 لأندرويد (لتفعيل التحديث الصغير على الجهاز)
+          for BIN in /tmp/xdelta_android/xdelta3-arm64-v8a /tmp/xdelta_android/xdelta3-armeabi-v7a /tmp/xdelta_android/xdelta3-x86_64; do
+            if [ -f "$BIN" ] && [ -s "$BIN" ]; then
+              gh release upload "$TAG" "$BIN" --clobber
+              echo "✅ Uploaded $(basename "$BIN")"
+            fi
+          done
 
           echo "✅ Release published: $TAG"
           echo "   IS_DELTA=$IS_DELTA"
