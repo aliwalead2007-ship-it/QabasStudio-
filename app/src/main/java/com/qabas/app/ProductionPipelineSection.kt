@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qabas.app.ui.theme.*
+import kotlinx.coroutines.isActive
 
 /**
  * قسم «مسار الإنتاج» في لوحة المطور — رصد احترافي حي لكل خطوة في مسار الإنتاج.
