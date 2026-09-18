@@ -139,14 +139,24 @@ jobs:
           SRC=$(find . -name 'xdelta3.c' | head -1 | xargs dirname)
           cd "$SRC"
 
-          CFLAGS="-O2 -fPIE -pie -DXD3_USE_LARGEFILE64=1 -DREGRESSION_TEST=0 -DSECONDARY_DJW=1 -DSECONDARY_FGK=1 -DXD3_MAIN=1 -DNOT_COVER=1"
+          # xdelta3.h يتوقع SIZEOF_* من سكربت configure (autotools) وهو غائب هنا
+          # لأننا نجمّع الملف الواحد مباشرة بدون autoconf — بدونها يسقط على
+          # "#error Bad configure script" ولا يعرّف usize_t/xoff_t إطلاقاً.
+          # على أندرويد (Bionic/Clang): 64-بت ABI فيها long/size_t = 8 بايت (LP64)،
+          # و32-بت ABI فيها long/size_t = 4 بايت (ILP32). unsigned long long = 8 دوماً.
+          CFLAGS_COMMON="-O2 -fPIE -pie -DXD3_USE_LARGEFILE64=1 -DREGRESSION_TEST=0 -DSECONDARY_DJW=1 -DSECONDARY_FGK=1 -DXD3_MAIN=1 -DNOT_COVER=1 -DSIZEOF_UNSIGNED_INT=4 -DSIZEOF_UNSIGNED_LONG_LONG=8"
+          CFLAGS_64="$CFLAGS_COMMON -DSIZEOF_SIZE_T=8 -DSIZEOF_UNSIGNED_LONG=8"
+          CFLAGS_32="$CFLAGS_COMMON -DSIZEOF_SIZE_T=4 -DSIZEOF_UNSIGNED_LONG=4"
 
           build_one() {
             local ABI="$1"
             local TRIPLE="$2"
             local API="$3"
+            local WORDSIZE="$4"
             local OUT="/tmp/xdelta_android/xdelta3-${ABI}"
             local CC="$TOOLCHAIN/bin/${TRIPLE}${API}-clang"
+            local CFLAGS
+            if [ "$WORDSIZE" = "64" ]; then CFLAGS="$CFLAGS_64"; else CFLAGS="$CFLAGS_32"; fi
             if [ ! -x "$CC" ]; then
               echo "⚠️ Compiler not found: $CC"
               return 0
@@ -161,9 +171,9 @@ jobs:
             file "$OUT" || true
           }
 
-          build_one "arm64-v8a" "aarch64-linux-android" "24"
-          build_one "armeabi-v7a" "armv7a-linux-androideabi" "24"
-          build_one "x86_64" "x86_64-linux-android" "24"
+          build_one "arm64-v8a" "aarch64-linux-android" "24" "64"
+          build_one "armeabi-v7a" "armv7a-linux-androideabi" "24" "32"
+          build_one "x86_64" "x86_64-linux-android" "24" "64"
 
           echo "Built binaries:"
           ls -la /tmp/xdelta_android/xdelta3-* 2>/dev/null || echo "(none)"
