@@ -97,7 +97,20 @@ object UpdateManager {
             val assets = json.getJSONArray("assets")
 
             val releaseVersionCode = parseVersionCode(tagName)
-            if (releaseVersionCode <= currentVersionCode) {
+            val tagHasBuildNumber = tagName.contains("+")
+            val currentVersionName = getCurrentVersionName(context)
+            val releaseVersionName = tagName.removePrefix("v").trim().substringBefore("+")
+            // المقارنة الأساسية بالاسم: نفس الاسم = لا تحديث، مهما كان رقم البناء.
+            // (versionCode المحلي من BUILD_NUMBER لا يقارَن بأرقام مشتقة من الاسم وإلا ظهر نفس التحديث للأبد)
+            if (releaseVersionName == currentVersionName) {
+                prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply()
+                return@withContext null
+            }
+            if (tagHasBuildNumber && releaseVersionCode <= currentVersionCode) {
+                prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply()
+                return@withContext null
+            }
+            if (!tagHasBuildNumber && compareVersionNames(releaseVersionName, currentVersionName) <= 0) {
                 prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply()
                 return@withContext null
             }
@@ -137,7 +150,7 @@ object UpdateManager {
                 .apply()
 
             UpdateInfo(
-                versionName = tagName.removePrefix("v"),
+                versionName = tagName.removePrefix("v").trim().substringBefore("+"),
                 versionCode = releaseVersionCode,
                 deltaUrl = deltaUrl,
                 apkUrl = apkUrl!!,
@@ -461,6 +474,24 @@ object UpdateManager {
         context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
     } catch (_: PackageManager.NameNotFoundException) {
         0
+    }
+
+    private fun getCurrentVersionName(context: Context): String = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+    } catch (_: PackageManager.NameNotFoundException) {
+        ""
+    }
+
+    /** مقارنة دلالية لأسماء الإصدارات: 1.2.10 > 1.2.1. يُرجع موجباً إن كان a أحدث. */
+    private fun compareVersionNames(a: String, b: String): Int {
+        val pa = a.removePrefix("v").trim().split(".")
+        val pb = b.removePrefix("v").trim().split(".")
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val x = pa.getOrNull(i)?.filter { it.isDigit() }?.toIntOrNull() ?: 0
+            val y = pb.getOrNull(i)?.filter { it.isDigit() }?.toIntOrNull() ?: 0
+            if (x != y) return x - y
+        }
+        return 0
     }
 
     private fun parseVersionCode(tag: String): Int {

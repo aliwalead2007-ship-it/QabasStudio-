@@ -168,7 +168,7 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             DashboardSection.APP_DOCTOR -> "طبيب التطبيق"
                             DashboardSection.STYLE_BRAIN -> "عقل الأساليب"
                             DashboardSection.API_KEYS -> "مفاتيح API"
-                            DashboardSection.PRODUCTION_PIPELINE -> "مسار الإنتاج"
+                            DashboardSection.PRODUCTION_PIPELINE -> "ملتقط مشاكل مسار الإنتاج"
                             DashboardSection.DIAGNOSTICS -> "تشخيص شامل"
                              DashboardSection.BUILD_CENTER -> "مركز البناء"
                              DashboardSection.HEALTH_CHECK -> "فحص صحة المفاتيح الحي 🩺"
@@ -549,7 +549,7 @@ fun DashboardMainGrid(
             Quad("سجلات النظام", Icons.AutoMirrored.Filled.List, Gold, onLogs, "الصحة والتشخيص"),
             Quad("فحص صحة المفاتيح الحي 🩺", Icons.Default.HealthAndSafety, Color(0xFFEAB308), onHealthCheck, "الصحة والتشخيص"),
             Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain, "الإنتاج والمحتوى"),
-            Quad("مسار الإنتاج", Icons.Default.PlayCircle, Gold, onProductionPipeline, "الإنتاج والمحتوى"),
+            Quad("ملتقط مشاكل الإنتاج", Icons.Default.BugReport, Gold, onProductionPipeline, "الإنتاج والمحتوى"),
             Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature, "الإنتاج والمحتوى"),
             Quad("إدارة المستخدمين", Icons.Default.Group, Cyan, onUsers, "المال والمستخدمون"),
             Quad("المبيعات والإيرادات", Icons.Default.AttachMoney, Green, onRevenue, "المال والمستخدمون"),

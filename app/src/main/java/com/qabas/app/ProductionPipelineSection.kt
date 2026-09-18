@@ -37,7 +37,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * قسم «مسار الإنتاج» في لوحة المطور — رصد احترافي حي لكل خطوة في مسار الإنتاج،
+ * قسم «ملتقط مشاكل مسار الإنتاج» في لوحة المطور — رصد احترافي حي لكل خطوة،
+ * مرتب كقمع تشخيصي: 1) صحة الملتقط 2) المشاكل الملتقطة 3) إجراءات الإصلاح
+ * 4) شريط تدفق آخر تشغيلة 5) الأعطال المتكررة 6) الأداء والسجل الحي.
  * مع طبيب تشخيص مدمج (PipelineDoctor) يترجم كل فشل إلى مشكلة + سبب + حل،
  * وبعض الحلول قابلة للتنفيذ بضغطة واحدة (تنظيف الكاش، فحص FFmpeg الذاتي).
  *
@@ -73,10 +75,6 @@ fun ProductionPipelineSection(
     val latestRunEvents = remember(events.value) { ProductionPipelineTracker.getLatestRunEvents(context) }
 
     val latestRunIssues = remember(latestRunEvents) { PipelineDoctor.analyze(latestRunEvents) }
-    val groupedIssues = remember(latestRunIssues) {
-        listOf(IssueSeverity.CRITICAL, IssueSeverity.WARNING, IssueSeverity.INFO)
-            .mapNotNull { sev -> latestRunIssues.filter { it.severity == sev }.takeIf { it.isNotEmpty() }?.let { sev to it } }
-    }
     val recurringIssues = remember(events.value) {
         PipelineDoctor.analyze(events.value).filter { it.occurrences > 1 || it.severity == IssueSeverity.CRITICAL }.take(5)
     }
@@ -91,6 +89,14 @@ fun ProductionPipelineSection(
     }
 
     var selectedStage by remember { mutableStateOf<ProductionPipelineTracker.Stage?>(null) }
+    var severityFilter by remember { mutableStateOf<IssueSeverity?>(null) }
+    val visibleIssues = remember(latestRunIssues, severityFilter) {
+        if (severityFilter == null) latestRunIssues else latestRunIssues.filter { it.severity == severityFilter }
+    }
+    val groupedIssues = remember(visibleIssues) {
+        listOf(IssueSeverity.CRITICAL, IssueSeverity.WARNING, IssueSeverity.INFO)
+            .mapNotNull { sev -> visibleIssues.filter { it.severity == sev }.takeIf { it.isNotEmpty() }?.let { sev to it } }
+    }
     val filteredEvents = if (selectedStage != null) events.value.filter { it.stage == selectedStage } else events.value
 
     // حالة الفحص الذاتي لمحرك FFmpeg
@@ -111,7 +117,7 @@ fun ProductionPipelineSection(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "مسار الإنتاج",
+                        "ملتقط مشاكل مسار الإنتاج",
                         color = GoldPrimary,
                         fontWeight = FontWeight.Bold,
                         fontFamily = CairoFont
@@ -188,6 +194,51 @@ fun ProductionPipelineSection(
                 }
             }
 
+            // ── 📤 تصدير تقرير للمطور: زر واحد ينسخ كل شيء ──
+            if (latestRunEvents.isNotEmpty()) {
+                item {
+                    var copied by remember { mutableStateOf(false) }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            clipboard.setText(AnnotatedString(buildDeveloperReport(context, latestRunEvents, latestRunIssues, healthScore)))
+                            copied = true
+                        },
+                        color = GoldPrimary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (copied) Icons.Default.CheckCircle else Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                tint = GoldPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (copied) "تم النسخ ✓ — الصقه لي في المحادثة" else "📤 انسخ تقرير المشكلة وأرسله للمطور",
+                                    color = GoldPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = CairoFont
+                                )
+                                Text(
+                                    "يشمل الجهاز + المشاكل + آخر 20 سطر سجل — جاهز للصق",
+                                    color = TextSecondary,
+                                    fontSize = 10.sp,
+                                    fontFamily = NotoSansFont
+                                )
+                            }
+                            Icon(Icons.Default.Share, contentDescription = null, tint = GoldPrimary.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
             // ── فحص ذاتي سريع لمحرك FFmpeg ──
             item {
                 Surface(
@@ -206,7 +257,7 @@ fun ProductionPipelineSection(
                                 Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = Color(0xFF22D3EE), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    "فحص ذاتي لمحرك FFmpeg",
+                                    "2️⃣ إجراءات الإصلاح السريع",
                                     color = TextPrimary,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
@@ -266,7 +317,7 @@ fun ProductionPipelineSection(
                             Icon(Icons.Default.MedicalServices, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "تشخيص آخر تشغيلة",
+                                "1️⃣ المشاكل الملتقطة — آخر تشغيلة",
                                 color = TextPrimary,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -281,11 +332,21 @@ fun ProductionPipelineSection(
                                 fontFamily = CairoFont,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.clickable {
-                                    val report = latestRunIssues.joinToString("\n\n---\n\n") { it.toShareText() }
+                                    val report = visibleIssues.joinToString("\n\n---\n\n") { it.toShareText() }
                                     clipboard.setText(AnnotatedString(report))
                                 }
                             )
                         }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        SeverityChip("الكل", latestRunIssues.size, severityFilter == null, GoldPrimary) { severityFilter = null }
+                        SeverityChip("حرج", latestRunIssues.count { it.severity == IssueSeverity.CRITICAL }, severityFilter == IssueSeverity.CRITICAL, Color(0xFFEF4444)) { severityFilter = if (severityFilter == IssueSeverity.CRITICAL) null else IssueSeverity.CRITICAL }
+                        SeverityChip("تحذير", latestRunIssues.count { it.severity == IssueSeverity.WARNING }, severityFilter == IssueSeverity.WARNING, Color(0xFFF59E0B)) { severityFilter = if (severityFilter == IssueSeverity.WARNING) null else IssueSeverity.WARNING }
+                        SeverityChip("معلومة", latestRunIssues.count { it.severity == IssueSeverity.INFO }, severityFilter == IssueSeverity.INFO, Color(0xFF60A5FA)) { severityFilter = if (severityFilter == IssueSeverity.INFO) null else IssueSeverity.INFO }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -339,7 +400,7 @@ fun ProductionPipelineSection(
                         Icon(Icons.Default.History, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "أعطال متكررة عبر كل التشغيلات:",
+                            "3️⃣ أعطال متكررة عبر كل التشغيلات:",
                             color = TextSecondary,
                             fontSize = 12.sp,
                             fontFamily = NotoSansFont,
@@ -396,7 +457,7 @@ fun ProductionPipelineSection(
             // ── أداء المراحل ──
             item {
                 Text(
-                    "أداء المراحل:",
+                    "4️⃣ أداء المراحل:",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     fontFamily = NotoSansFont,
@@ -465,7 +526,7 @@ fun ProductionPipelineSection(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        if (selectedStage != null) "سجل «${selectedStage!!.label}»:" else "السجل الحي (كل التشغيلات):",
+                        if (selectedStage != null) "5️⃣ سجل «${selectedStage!!.label}»:" else "5️⃣ السجل الحي (كل التشغيلات):",
                         color = TextSecondary,
                         fontSize = 12.sp,
                         fontFamily = NotoSansFont,
@@ -595,8 +656,54 @@ private fun HealthScoreRow(score: Int, issueCount: Int) {
 
 /** ترويسة مجموعة مشاكل بحسب الخطورة. */
 @Composable
-private fun SeverityGroupHeader(severity: IssueSeverity, count: Int) {
-    val color = Color(severity.colorHex)
+/** يبني تقريراً نصياً جاهزاً للصق في المحادثة: جهاز + صحة + مشاكل + آخر السجل. */
+private fun buildDeveloperReport(
+    context: android.content.Context,
+    runEvents: List<ProductionPipelineTracker.PipelineEvent>,
+    issues: List<DiagnosedIssue>,
+    healthScore: Int
+): String = buildString {
+    append("🩺 تقرير ملتقط مشاكل مسار الإنتاج\n")
+    append("━━━━━━━━━━━━━━\n")
+    append("الجهاز: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE}, API ${android.os.Build.VERSION.SDK_INT})\n")
+    append("صحة آخر تشغيلة: $healthScore/100 | الأحداث: ${runEvents.size} | المشاكل: ${issues.size}\n\n")
+    if (issues.isEmpty()) {
+        append("لا مشاكل مشخصة — كل المراحل سليمة.\n\n")
+    } else {
+        issues.forEachIndexed { i, issue ->
+            append("مشكلة ${i + 1}: ${issue.title}\n")
+            append("المرحلة: ${issue.stage.label} | الخطورة: ${issue.severity.label} | التكرار: ${issue.occurrences}\n")
+            if (issue.affectedScenes.isNotEmpty()) append("المشاهد: ${issue.affectedScenes.joinToString(", ") { (it + 1).toString() }}\n")
+            append("السبب: ${issue.cause}\n")
+            append("الحل المقترح: ${issue.solution}\n\n")
+        }
+    }
+    append("── آخر 20 سطر سجل ──\n")
+    runEvents.takeLast(20).forEach { e ->
+        append("[${ProductionPipelineTracker.formatTimestamp(e.timestamp)}] ${e.stage.label} ${e.result} مشهد=${if (e.sceneIndex >= 0) e.sceneIndex + 1 else "—"}: ${e.message}\n")
+        if (e.detail.isNotBlank()) append("   ↳ ${e.detail.take(300)}\n")
+    }
+}
+
+@Composable
+private fun SeverityChip(label: String, count: Int, selected: Boolean, color: Color, onClick: () -> Unit) {    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        color = if (selected) color.copy(alpha = 0.22f) else Color(0xFF0D1320),
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = if (selected) 0.8f else 0.3f))
+    ) {
+        Text(
+            "$label ($count)",
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = CairoFont,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
+
+private fun SeverityGroupHeader(severity: IssueSeverity, count: Int) {    val color = Color(severity.colorHex)
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
