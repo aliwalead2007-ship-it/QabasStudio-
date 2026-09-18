@@ -1104,7 +1104,7 @@ fun NotificationsSection(context: Context) {
             }
         }
 
-        Text("⭐ الإشعارات تُرسل محلياً على هذا الجهاز حصرياً — لا توجد قناة دفع/إشعارات سحابية بعد.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+        Text("البث السحابي يعمل عبر Firestore — يصل كل الأجهزة المتصلة مع دعم الجدولة والشرائح.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
 
         if (sentNotifications.isEmpty()) {
             Text("لا توجد إشعارات مرسلة حالياً", color = Color.Gray, fontFamily = NotoSansFont, fontSize = 14.sp)
@@ -2991,7 +2991,10 @@ private fun CrashGroupCard(group: CrashGroup, onOpenSample: () -> Unit) {
 }
 
 @Composable
-private fun CrashStackDialog(crash: CrashLogFile, onDismiss: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit) {
+ private fun CrashStackDialog(crash: CrashLogFile, onDismiss: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit) {
+    var aiAnalysis by remember { mutableStateOf<String?>(null) }
+    var aiBusy by remember { mutableStateOf(false) }
+    val aiScope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -3022,6 +3025,49 @@ private fun CrashStackDialog(crash: CrashLogFile, onDismiss: () -> Unit, onCopy:
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp
                     )
+                }
+                Spacer(Modifier.height(8.dp))
+                // ── تحليل الذكاء الاصطناعي لسبب العطل ──
+                if (aiBusy) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(color = GoldPrimary, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("يحلل النموذج السباك...", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    }
+                } else if (aiAnalysis != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF8B5CF6).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                    ) {
+                        Text(aiAnalysis!!, color = Color.White, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            aiBusy = true
+                            aiScope.launch {
+                                val stack = crash.fullStack.take(4000)
+                                val answer = AppServices.chatWithAssistant(
+                                    listOf(
+                                        Pair(
+                                            true,
+                                            "أنت خبير أعطال أندرويد (Kotlin). حلل هذا السباك باختصار بالعربية: السطر المسبب، لماذا حدث، والإصلاح المقترح بسطرين لكل نقطة.\n\n$stack"
+                                        )
+                                    ),
+                                    "أنت محلل أعطال. تجيب بالعربية بثلاث نقاط فقط: السبب/لماذا/الإصلاح."
+                                )
+                                aiAnalysis = answer.take(1200)
+                                aiBusy = false
+                            }
+                        },
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("تحليل بالذكاء الاصطناعي", color = Color(0xFF8B5CF6), fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         },

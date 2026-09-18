@@ -85,6 +85,23 @@ fun RevenueDashboard(context: Context) {
     val byUser = purchases.groupBy { it["userId"] as? String ?: "?" }
     val repeatRate = if (byUser.isNotEmpty())
         byUser.count { it.value.size > 1 } * 100.0 / byUser.size else 0.0
+    // التسرب: مشترون انتهت اشتراكاتهم (pro_1m أقدم من 30 يوم / pro_1y أقدم من سنة) بلا تجديد
+    fun proExpiry(pid: String, ts: Long): Long = when (pid) {
+        "pro_1m" -> ts + 30 * dayMs
+        "pro_1y" -> ts + 365 * dayMs
+        else -> 0L
+    }
+    val proBuyers = byUser.filter { (_, list) -> list.any { (it["productId"] as? String ?: "").startsWith("pro_") } }
+    val churned = proBuyers.count { (_, list) ->
+        val latestExpiry = list
+            .mapNotNull {
+                val pid = it["productId"] as? String ?: return@mapNotNull null
+                if (!pid.startsWith("pro_")) return@mapNotNull null
+                proExpiry(pid, (it["timestamp"] as? Long) ?: 0L)
+            }.maxOrNull() ?: 0L
+        latestExpiry in 1 until now
+    }
+    val churnRate = if (proBuyers.isNotEmpty()) churned * 100.0 / proBuyers.size else 0.0
 
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
@@ -134,6 +151,11 @@ fun RevenueDashboard(context: Context) {
                 RevenueKpi(
                     value = "${"%.0f".format(repeatRate)}٪", label = "إعادة الشراء",
                     tint = GoldPrimary, modifier = Modifier.weight(1f)
+                )
+                RevenueKpi(
+                    value = "${"%.0f".format(churnRate)}٪", label = "التسرب",
+                    tint = if (churnRate > 30) Color(0xFFEF4444) else TextSecondary,
+                    modifier = Modifier.weight(1f)
                 )
             }
             // الرسم البياني الشهري
