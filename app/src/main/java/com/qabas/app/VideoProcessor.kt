@@ -109,7 +109,7 @@ object VideoProcessor {
     }
 
     /** Cancels any running FFmpeg session (used by UI cancel). */
-    fun cancelAll() { try { FFmpegKit.cancel() } catch (_: Exception) {} }
+    fun cancelAll() { try { FFmpegKit.cancel() } catch (_: Throwable) {} }
 
     /** Concatenates multiple audio files into one (single narration track). */
     suspend fun concatAudios(context: Context, audioPaths: List<String>, outputPath: String): Boolean {
@@ -147,7 +147,7 @@ object VideoProcessor {
                 "انتهت مهلة معالجة الفيديو (${effectiveTimeout / 1000}ث) | $operationDescription 🔴",
                 Color(0xFFEF4444)
             )
-            try { FFmpegKit.cancel() } catch (_: Exception) {}
+            try { FFmpegKit.cancel() } catch (_: Throwable) {}
             return@withContext false
         }
 

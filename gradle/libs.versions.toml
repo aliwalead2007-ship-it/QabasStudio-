@@ -46,6 +46,7 @@ firebaseCrashlytics = "3.0.3"
 credentials = "1.5.0"
 googleid = "1.1.1"
 ffmpegKit = "6.0.3"
+smartException = "0.2.1"
 billing = "7.0.0"
 opencv = "4.10.0"
 supabase = "3.6.0"
@@ -121,6 +122,7 @@ googleid = { group = "com.google.android.libraries.identity.googleid", name = "g
 
 
 ffmpeg-kit-full = { group = "dev.ffmpegkit-maintained", name = "ffmpeg-kit-full", version.ref = "ffmpegKit" }
+smart-exception-java = { group = "com.arthenica", name = "smart-exception-java", version.ref = "smartException" }
 billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 

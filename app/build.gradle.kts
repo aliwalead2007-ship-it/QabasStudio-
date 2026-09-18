@@ -163,6 +163,8 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.retrofit)
   implementation(libs.ffmpeg.kit.full)
+  // ffmpeg-kit-maintained POM لا يعلن اعتمادياته — نضيفها يدوياً وإلا ينهار التطبيق NoClassDefFoundError وقت التشغيل
+  implementation(libs.smart.exception.java)
   implementation(libs.billing.ktx)
   implementation(libs.opencv)
 
