@@ -53,7 +53,6 @@ kotlinxSerializationJson = "1.7.3"
 composeFoundation = "1.9.0"
 composeFoundationLayout = "1.9.0"
 onnxRuntime = "1.20.0"
-llamaCpp = "0.5.0"
 
 
 [libraries]
@@ -127,9 +126,6 @@ opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 
 # ONNX Runtime for Kokoro TTS
 onnx-runtime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxRuntime" }
-
-# llama.cpp for local LLM (GGUF models)
-llama-cpp-android = { group = "com.github.ggml-org", name = "llama-android", version.ref = "llamaCpp" }
 
 # Supabase (Backend-as-a-Service: Postgres + Auth + Storage + Realtime)
 supabase-bom = { group = "io.github.jan-tennert.supabase", name = "bom", version.ref = "supabase" }
