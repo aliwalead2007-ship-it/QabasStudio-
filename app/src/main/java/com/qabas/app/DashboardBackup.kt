@@ -356,11 +356,6 @@ class AutoBackupReceiver : android.content.BroadcastReceiver() {
         }
     }
 }
-    val configRestored: Boolean = false,
-    val promoRestored: Int = 0,
-    val giftRestored: Int = 0,
-    val usersRestored: Int = 0
-)
 
 private suspend fun readBackupForRestore(context: Context, uri: android.net.Uri): Pair<String?, BackupRestoreCounts?> = withContext(Dispatchers.IO) {
     try {

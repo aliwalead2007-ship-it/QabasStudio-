@@ -491,7 +491,6 @@ class VideoEngineManager(private val context: Context) {
                     if (voiceOk && VideoProcessor.isValidVideoFile(voicedPath, minSizeBytes = VideoProcessor.MIN_SCENE_SIZE)) {
                         currentWorkingVideoPath = voicedPath
                     }
-                }
             }
 
             val noAmbient = ambientSound.contains("بدون") || ambientSound.isBlank() || ambientSound == "لا يوجد"

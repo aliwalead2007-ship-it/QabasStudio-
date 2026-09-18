@@ -129,7 +129,8 @@ object KokoroTtsService {
         try {
             val ids = textToIds(text)
             if (ids.isEmpty()) return@withContext null
-            val inputTensor = OnnxTensor.createTensor(ortEnv!!, java.util.Arrays.stream(ids).asLongStream().toArray(), longArrayOf(1, ids.size.toLong()))
+            val longIds = ids.map { it.toLong() }.toLongArray()
+            val inputTensor = OnnxTensor.createTensor(ortEnv!!, longIds, longArrayOf(1, ids.size.toLong()))
             val inputs = mapOf("input_ids" to inputTensor)
             val outputs = session!!.run(inputs)
             val outputTensor = outputs[0] as OnnxTensor
@@ -140,7 +141,7 @@ object KokoroTtsService {
             val pcm = ShortArray(audioData.size)
             for (i in audioData.indices) {
                 val v = (audioData[i] * 32767.0f).coerceIn(-32768f, 32767f)
-                pcm[i] = v.toShort()
+                pcm[i] = v.toInt().toShort()
             }
             // حفظ WAV
             val outFile = File(context.cacheDir, "kokoro_${System.currentTimeMillis()}.wav")

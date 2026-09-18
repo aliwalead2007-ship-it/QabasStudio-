@@ -89,7 +89,7 @@ object DoctorMonitor {
             SystemLogsManager.addLog(
                 if (pulse == "green") "INFO" else "WARN",
                 "الطبيب الحي: $msg",
-                android.compose.ui.graphics.Color(if (pulse == "red") 0xFFEF4444 else if (pulse == "yellow") 0xFFE8C547 else 0xFF4CAF50)
+                androidx.compose.ui.graphics.Color(if (pulse == "red") 0xFFEF4444 else if (pulse == "yellow") 0xFFE8C547 else 0xFF4CAF50)
             )
         } catch (_: Exception) {}
     }

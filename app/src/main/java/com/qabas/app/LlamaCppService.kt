@@ -31,14 +31,12 @@ object LlamaCppService {
     @Volatile
     private var currentModelPath: String? = null
 
-    companion object {
-        init {
-            try {
-                System.loadLibrary("llama_jni")
-                Log.i(TAG, "llama_jni library loaded")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "llama_jni not available (expected if not built): ${e.message}")
-            }
+    init {
+        try {
+            System.loadLibrary("llama_jni")
+            Log.i(TAG, "llama_jni library loaded")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "llama_jni not available (expected if not built): ${e.message}")
         }
     }
 
@@ -166,14 +164,9 @@ object LlamaCppService {
             for (i in 0 until scenesArray.length()) {
                 val obj = scenesArray.getJSONObject(i)
                 val scene = Scene(
-                    id = i,
                     title = obj.optString("title", "مشهد ${i + 1}"),
                     description = obj.optString("description", ""),
-                    voiceover = obj.optString("voiceover", ""),
-                    durationInSeconds = obj.optDouble("duration", 8.0),
-                    keywords = obj.optJSONArray("keywords")?.let { arr ->
-                        (0 until arr.length()).map { arr.getString(it) }
-                    } ?: emptyList()
+                    durationInSeconds = obj.optDouble("duration", 8.0).toInt()
                 )
                 scenes.add(scene)
             }

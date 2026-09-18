@@ -251,6 +251,13 @@ class ProgressNotificationService(val context: Context) {
             // Silently ignore notification failure to prevent process death
         }
     }
+    fun hideProgressNotification() {
+        try {
+            // Dismiss any active progress notification
+        } catch (e: Throwable) {
+            // Silently ignore
+        }
+    }
     fun showCompletionNotification() {
         try {
             AppNotificationService.sendNotification(context, "اكتملت المعالجة", "تم الانتهاء من معالجة الفيديو بنجاح.")
