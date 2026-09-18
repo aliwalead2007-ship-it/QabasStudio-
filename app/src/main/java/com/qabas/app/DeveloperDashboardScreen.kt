@@ -52,7 +52,7 @@ enum class DashboardSection {
     MAIN, REQUESTS, SYSTEM_CONTROLS, NOTIFICATIONS, USERS, STATS, LOGS,
     CRASH_LOGS, ACCOUNT_SETTINGS, PROMO_CODES, REVENUE, DEV_STUDIO_SIGNATURE,
     AGENCY_MONETIZATION, APP_DOCTOR, STYLE_BRAIN,
-    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, DIAGNOSTICS, BUILD_CENTER
+    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, DIAGNOSTICS, BUILD_CENTER, HEALTH_CHECK
 }
 
 data class DevUser(
@@ -170,8 +170,9 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             DashboardSection.API_KEYS -> "مفاتيح API"
                             DashboardSection.PRODUCTION_PIPELINE -> "مسار الإنتاج"
                             DashboardSection.DIAGNOSTICS -> "تشخيص شامل"
-                            DashboardSection.BUILD_CENTER -> "مركز البناء"
-                        }, 
+                             DashboardSection.BUILD_CENTER -> "مركز البناء"
+                             DashboardSection.HEALTH_CHECK -> "فحص صحة المفاتيح الحي 🩺"
+                         },
                         color = GoldPrimary, 
                         fontWeight = FontWeight.Bold, 
                         fontFamily = CairoFont
@@ -314,6 +315,11 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                         onProductionPipeline = { currentSection = DashboardSection.PRODUCTION_PIPELINE },
                         onDiagnostics = { currentSection = DashboardSection.DIAGNOSTICS },
                         onBuildCenter = { currentSection = DashboardSection.BUILD_CENTER },
+                        onHealthCheck = { currentSection = DashboardSection.HEALTH_CHECK },
+                        onApiConsumption = { 
+                            requests = AppRequestService.getRequests(context, isDeveloper = true)
+                            currentSection = DashboardSection.STATS 
+                        },
                         userCount = devUsers.size
                     )
                 }
@@ -382,6 +388,9 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 DashboardSection.BUILD_CENTER -> {
                     BuildCenterSection(context = context)
                 }
+                DashboardSection.HEALTH_CHECK -> {
+                    LiveHealthCheckPanel()
+                }
             }
         }
     }
@@ -395,22 +404,24 @@ fun DashboardMainGrid(
     onUsers: () -> Unit,
     onStats: () -> Unit,
     onLogs: () -> Unit,
-                    onCrashLogs: () -> Unit,
+    onCrashLogs: () -> Unit,
     onAccountSettings: () -> Unit,
     onPromoCodes: () -> Unit,
     onRevenue: () -> Unit,
     onDevStudioSignature: () -> Unit,
     onAgencyMonetization: () -> Unit,
-onAppDoctor: () -> Unit,
-                        onStyleBrain: () -> Unit,
-                        onApiKeys: () -> Unit,
-                        onAuditLog: () -> Unit = {},
-                        onBackup: () -> Unit = {},
-                        onProductionPipeline: () -> Unit = {},
-                        onDiagnostics: () -> Unit = {},
-                        onBuildCenter: () -> Unit = {},
-                        userCount: Int = 0
-                    ) {
+    onAppDoctor: () -> Unit,
+    onStyleBrain: () -> Unit,
+    onApiKeys: () -> Unit,
+    onAuditLog: () -> Unit = {},
+    onBackup: () -> Unit = {},
+    onProductionPipeline: () -> Unit = {},
+    onDiagnostics: () -> Unit = {},
+    onBuildCenter: () -> Unit = {},
+    onHealthCheck: () -> Unit = {},
+    onApiConsumption: () -> Unit = {},
+    userCount: Int = 0
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.5f,
@@ -424,6 +435,7 @@ onAppDoctor: () -> Unit,
 
     val gridContext = LocalContext.current
     var isGridOnline by remember { mutableStateOf(NetworkUtils.isNetworkAvailable(gridContext)) }
+    var isSupabaseOnline by remember { mutableStateOf(SupabaseServices.isSupabaseAvailable) }
     var diagnosticSummary by remember { mutableStateOf("جاري الفحص...") }
 
     LaunchedEffect(Unit) {
@@ -441,6 +453,7 @@ onAppDoctor: () -> Unit,
 
         while (true) {
             isGridOnline = NetworkUtils.isNetworkAvailable(gridContext)
+            isSupabaseOnline = SupabaseServices.isSupabaseAvailable
             kotlinx.coroutines.delay(3000)
         }
     }
@@ -472,21 +485,38 @@ onAppDoctor: () -> Unit,
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, if (isGridOnline) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFFEF4444).copy(alpha = 0.5f))
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Canvas(modifier = Modifier.size(8.dp)) {
-                                    drawCircle(color = if (isGridOnline) Color(0xFF10B981).copy(alpha = pulseAlpha) else Color(0xFFEF4444).copy(alpha = pulseAlpha))
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                ) {
+                                    Canvas(modifier = Modifier.size(8.dp)) {
+                                        drawCircle(color = if (isGridOnline) Color(0xFF10B981).copy(alpha = pulseAlpha) else Color(0xFFEF4444).copy(alpha = pulseAlpha))
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isGridOnline) "متصل" else "غير متصل",
+                                        color = if (isGridOnline) Color(0xFF10B981) else Color(0xFFEF4444),
+                                        fontFamily = CairoFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (isGridOnline) "متصل" else "غير متصل", 
-                                    color = if (isGridOnline) Color(0xFF10B981) else Color(0xFFEF4444), 
-                                    fontFamily = CairoFont, 
-                                    fontWeight = FontWeight.Bold, 
-                                    fontSize = 12.sp
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Canvas(modifier = Modifier.size(8.dp)) {
+                                        drawCircle(color = if (isSupabaseOnline) Color(0xFF10B981).copy(alpha = pulseAlpha) else Color(0xFFEF4444).copy(alpha = pulseAlpha))
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isSupabaseOnline) "سحابة ✓" else "سحابة ✗",
+                                        color = if (isSupabaseOnline) Color(0xFF10B981) else Color(0xFFEF4444),
+                                        fontFamily = CairoFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
                             }
                         }
                     }
@@ -517,6 +547,7 @@ onAppDoctor: () -> Unit,
             Quad("تشخيص شامل", Icons.Default.HealthAndSafety, Gold, onDiagnostics, "الصحة والتشخيص"),
             Quad("سجل الانهيارات", Icons.Default.BugReport, Red, onCrashLogs, "الصحة والتشخيص"),
             Quad("سجلات النظام", Icons.AutoMirrored.Filled.List, Gold, onLogs, "الصحة والتشخيص"),
+            Quad("فحص صحة المفاتيح الحي 🩺", Icons.Default.HealthAndSafety, Color(0xFFEAB308), onHealthCheck, "الصحة والتشخيص"),
             Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain, "الإنتاج والمحتوى"),
             Quad("مسار الإنتاج", Icons.Default.PlayCircle, Gold, onProductionPipeline, "الإنتاج والمحتوى"),
             Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature, "الإنتاج والمحتوى"),
@@ -530,6 +561,7 @@ onAppDoctor: () -> Unit,
             Quad("التحكم في النظام", Icons.Default.Settings, Color(0xFF94A3B8), onSystemControls, "النظام والإعدادات"),
             Quad("إعدادات حساب المطور", Icons.Default.ManageAccounts, Cyan, onAccountSettings, "النظام والإعدادات"),
             Quad("مفاتيح API", Icons.Default.VpnKey, Cyan, onApiKeys, "النظام والإعدادات"),
+            Quad("استهلاك API", Icons.Default.Bolt, Color(0xFFF59E0B), onApiConsumption, "النظام والإعدادات"),
             Quad("سجل التدقيق", Icons.Default.History, Violet, onAuditLog, "النظام والإعدادات"),
             Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup, "النظام والإعدادات"),
             Quad("مركز البناء", Icons.Default.Construction, Amber, onBuildCenter, "النظام والإعدادات")

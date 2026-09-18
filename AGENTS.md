@@ -325,6 +325,17 @@
 | بنية الملفات | مكونات جديدة في ملفات مستقلة بدل الاحتكام في `DeveloperDashboardScreen.kt` (3354 سطراً بعد إزالة الدالتين الميتتين `UsersSection`/`RevenueSection`): `AdminGuard.kt`، `AppRemoteConfig.kt`، `AuditLogger.kt`، `EnhancedUsersSection.kt`، `RevenueDashboard.kt`، `RemoteNotificationsManager.kt`، `DashboardBackupSection.kt`، `AuditLogSection.kt`. |
 | الملفات | `QabasApplication.kt` (مهام بدء التشغيل)، `AccountService.kt` (قراءة بعيدة)، `DeveloperDashboardScreen.kt` (واجهة حماية + أقسام جديدة)، `AGENTS.md`، `README.md`. |
 
+### يـ) لوحة المطور — بطاقات سريعة جديدة + حالة Supabase (سبتمبر 2026)
+
+| عنصر | ماذا أُنجز |
+|-----|------------|
+| `DashboardSection.HEALTH_CHECK` | قسم جديد في enum يعرض `LiveHealthCheckPanel` مباشرة (من `ApiKeysScreen.kt`) — فحص صحة المفاتيح الحي 🩺 لجميع الخدمات (Gemini، Groq، OpenAI، HuggingFace، Azure TTS، ElevenLabs، Pexels، Pixabay) مع أزمنة استجابة حقيقية وخطة إصلاح مقترحة. |
+| بطاقة «فحص صحة المفاتيح الحي 🩺» | أُضيفت للشبكة الرئيسية (مجموعة الصحة والتشخيص) → تفتح قسم `HEALTH_CHECK` مباشرة. |
+| بطاقة «استهلاك API» | أُضيفت للشبكة الرئيسية (مجموعة النظام والإعدادات) → تفتح قسم الإحصائيات (`STATS`) الذي يعرض `ApiConsumptionChart` و`SystemPerformanceHealthKpiGrid`. |
+| مؤشر حالة Supabase | أُضيف إلى البطاقة الرئيسية «Qabas Dev Studio» بجانب حالة الإنترنت — يعرض 🟢/🔴 لحظي لحالة `SupabaseServices.isSupabaseAvailable` يتحديث كل 3 ثوانٍ. |
+| `DashboardSection` enum | أُضيف `HEALTH_CHECK` كقسم مستقل (لا يُلغي `API_KEYS`). |
+| الملفات | `DeveloperDashboardScreen.kt` (أضاف `isSupabaseOnline` state، `HEALTH_CHECK` في enum وTopAppBar و`when`، `onHealthCheck`/`onApiConsumption` callbacks، بطاقتين جديدتان في `items`). |
+
 ---
 
 ## 4. الخطوة التالية الوحيدة الآن
