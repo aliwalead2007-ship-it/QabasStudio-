@@ -49,10 +49,10 @@ import java.util.zip.ZipOutputStream
 
 
 enum class DashboardSection {
-    MAIN, REQUESTS, SYSTEM_CONTROLS, NOTIFICATIONS, USERS, STATS, LOGS,
-    CRASH_LOGS, ACCOUNT_SETTINGS, PROMO_CODES, REVENUE, DEV_STUDIO_SIGNATURE,
-    AGENCY_MONETIZATION, APP_DOCTOR, STYLE_BRAIN,
-    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, DIAGNOSTICS, BUILD_CENTER, HEALTH_CHECK
+    MAIN, REQUESTS, SYSTEM_CONTROLS, NOTIFICATIONS, USERS, STATS,
+    ACCOUNT_SETTINGS, MONEY_CENTER, DEV_STUDIO_SIGNATURE,
+    STYLE_BRAIN,
+    API_KEYS, AUDIT_LOG, BACKUP, PRODUCTION_PIPELINE, BUILD_CENTER, HEALTH_CENTER
 }
 
 data class DevUser(
@@ -155,23 +155,17 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             DashboardSection.SYSTEM_CONTROLS -> "التحكم في النظام"
                             DashboardSection.NOTIFICATIONS -> "إرسال وتصفح الإشعارات"
                             DashboardSection.USERS -> "إدارة الحسابات"
-                            DashboardSection.STATS -> "الإحصائيات المباشرة"
-                            DashboardSection.LOGS -> "سجلات النظام (Logs)"
-                            DashboardSection.CRASH_LOGS -> "سجل الانهيارات"
+                            DashboardSection.STATS -> "مركز الإحصائيات 📊"
+                            DashboardSection.HEALTH_CENTER -> "مركز الصحة 🩺"
                             DashboardSection.ACCOUNT_SETTINGS -> "إعدادات حساب المطور"
-                            DashboardSection.PROMO_CODES -> "المكافآت والأكواد"
-                            DashboardSection.REVENUE -> "المبيعات والإيرادات"
+                            DashboardSection.MONEY_CENTER -> "مركز المال 💰"
                             DashboardSection.AUDIT_LOG -> "سجل التدقيق"
                             DashboardSection.BACKUP -> "نسخ احتياطي واسترجاع"
                             DashboardSection.DEV_STUDIO_SIGNATURE -> "استوديو المطور والتوقيع"
-                            DashboardSection.AGENCY_MONETIZATION -> "وكالة الأرباح والخدمات"
-                            DashboardSection.APP_DOCTOR -> "طبيب التطبيق"
                             DashboardSection.STYLE_BRAIN -> "عقل الأساليب"
                             DashboardSection.API_KEYS -> "مفاتيح API"
                             DashboardSection.PRODUCTION_PIPELINE -> "ملتقط مشاكل مسار الإنتاج"
-                            DashboardSection.DIAGNOSTICS -> "تشخيص شامل"
                              DashboardSection.BUILD_CENTER -> "مركز البناء"
-                             DashboardSection.HEALTH_CHECK -> "فحص صحة المفاتيح الحي 🩺"
                          },
                         color = GoldPrimary, 
                         fontWeight = FontWeight.Bold, 
@@ -300,31 +294,21 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                             requests = AppRequestService.getRequests(context, isDeveloper = true)
                             currentSection = DashboardSection.STATS 
                         },
-                        onLogs = { currentSection = DashboardSection.LOGS },
-                        onCrashLogs = { currentSection = DashboardSection.CRASH_LOGS },
+                        onHealthCenter = { currentSection = DashboardSection.HEALTH_CENTER },
                         onAccountSettings = { currentSection = DashboardSection.ACCOUNT_SETTINGS },
-                        onPromoCodes = { currentSection = DashboardSection.PROMO_CODES },
-                        onRevenue = { currentSection = DashboardSection.REVENUE },
+                        onMoneyCenter = { currentSection = DashboardSection.MONEY_CENTER },
                         onDevStudioSignature = { currentSection = DashboardSection.DEV_STUDIO_SIGNATURE },
-                        onAgencyMonetization = { currentSection = DashboardSection.AGENCY_MONETIZATION },
-                        onAppDoctor = { currentSection = DashboardSection.APP_DOCTOR },
                         onStyleBrain = { currentSection = DashboardSection.STYLE_BRAIN },
                         onApiKeys = { currentSection = DashboardSection.API_KEYS },
                         onAuditLog = { currentSection = DashboardSection.AUDIT_LOG },
                         onBackup = { currentSection = DashboardSection.BACKUP },
                         onProductionPipeline = { currentSection = DashboardSection.PRODUCTION_PIPELINE },
-                        onDiagnostics = { currentSection = DashboardSection.DIAGNOSTICS },
                         onBuildCenter = { currentSection = DashboardSection.BUILD_CENTER },
-                        onHealthCheck = { currentSection = DashboardSection.HEALTH_CHECK },
-                        onApiConsumption = { 
-                            requests = AppRequestService.getRequests(context, isDeveloper = true)
-                            currentSection = DashboardSection.STATS 
-                        },
                         userCount = devUsers.size
                     )
                 }
-                DashboardSection.APP_DOCTOR -> {
-                    AppDoctorSection(context = context)
+                DashboardSection.HEALTH_CENTER -> {
+                    HealthCenterSection(devLogs = devLogs)
                 }
                 DashboardSection.STYLE_BRAIN -> {
                     StyleBrainSection(context = context)
@@ -332,8 +316,8 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 DashboardSection.API_KEYS -> {
                     ApiKeysScreen(onBack = { currentSection = DashboardSection.MAIN })
                 }
-                DashboardSection.AGENCY_MONETIZATION -> {
-                    AgencyMonetizationHub(context = context)
+                DashboardSection.MONEY_CENTER -> {
+                    MoneyCenterSection(context = context)
                 }
                 DashboardSection.DEV_STUDIO_SIGNATURE -> {
                     DevStudioSignatureSection(context = context)
@@ -361,18 +345,6 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 DashboardSection.STATS -> {
                     StatsSection(requests = requests, userCount = devUsers.size)
                 }
-                DashboardSection.LOGS -> {
-                    LogsSection(devLogs = devLogs)
-                }
-                DashboardSection.CRASH_LOGS -> {
-                    CrashLogsSection(context = context)
-                }
-                DashboardSection.PROMO_CODES -> {
-                    PromoCodesSection(context = context)
-                }
-                DashboardSection.REVENUE -> {
-                    RevenueDashboard(context = context)
-                }
                 DashboardSection.AUDIT_LOG -> {
                     AuditLogSection(context = context)
                 }
@@ -382,14 +354,8 @@ fun DeveloperDashboardScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit = 
                 DashboardSection.PRODUCTION_PIPELINE -> {
                     ProductionPipelineSection()
                 }
-                DashboardSection.DIAGNOSTICS -> {
-                    DiagnosticsDashboardSection()
-                }
                 DashboardSection.BUILD_CENTER -> {
                     BuildCenterSection(context = context, onNavigateTo = onNavigateTo)
-                }
-                DashboardSection.HEALTH_CHECK -> {
-                    LiveHealthCheckPanel()
                 }
             }
         }
@@ -403,23 +369,16 @@ fun DashboardMainGrid(
     onNotifications: () -> Unit,
     onUsers: () -> Unit,
     onStats: () -> Unit,
-    onLogs: () -> Unit,
-    onCrashLogs: () -> Unit,
+    onHealthCenter: () -> Unit,
     onAccountSettings: () -> Unit,
-    onPromoCodes: () -> Unit,
-    onRevenue: () -> Unit,
+    onMoneyCenter: () -> Unit,
     onDevStudioSignature: () -> Unit,
-    onAgencyMonetization: () -> Unit,
-    onAppDoctor: () -> Unit,
     onStyleBrain: () -> Unit,
     onApiKeys: () -> Unit,
     onAuditLog: () -> Unit = {},
     onBackup: () -> Unit = {},
     onProductionPipeline: () -> Unit = {},
-    onDiagnostics: () -> Unit = {},
     onBuildCenter: () -> Unit = {},
-    onHealthCheck: () -> Unit = {},
-    onApiConsumption: () -> Unit = {},
     userCount: Int = 0
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -543,30 +502,24 @@ fun DashboardMainGrid(
         val Red = Color(0xFFEF4444)
         val Amber = Color(0xFFE8C547)
         val items = listOf(
-            Quad("طبيب التطبيق", Icons.Default.MedicalServices, Gold, onAppDoctor, "الصحة والتشخيص"),
-            Quad("تشخيص شامل", Icons.Default.HealthAndSafety, Gold, onDiagnostics, "الصحة والتشخيص"),
-            Quad("سجل الانهيارات", Icons.Default.BugReport, Red, onCrashLogs, "الصحة والتشخيص"),
-            Quad("سجلات النظام", Icons.AutoMirrored.Filled.List, Gold, onLogs, "الصحة والتشخيص"),
-            Quad("فحص صحة المفاتيح الحي 🩺", Icons.Default.HealthAndSafety, Color(0xFFEAB308), onHealthCheck, "الصحة والتشخيص"),
+            Quad("مركز الصحة 🩺", Icons.Default.MedicalServices, Gold, onHealthCenter, "الصحة والتشخيص"),
             Quad("عقل الأساليب", Icons.Default.Psychology, Violet, onStyleBrain, "الإنتاج والمحتوى"),
             Quad("ملتقط مشاكل الإنتاج", Icons.Default.BugReport, Gold, onProductionPipeline, "الإنتاج والمحتوى"),
             Quad("توقيع واستوديو المطور", Icons.Default.Verified, Amber, onDevStudioSignature, "الإنتاج والمحتوى"),
             Quad("إدارة المستخدمين", Icons.Default.Group, Cyan, onUsers, "المال والمستخدمون"),
-            Quad("المبيعات والإيرادات", Icons.Default.AttachMoney, Green, onRevenue, "المال والمستخدمون"),
-            Quad("وكالة الأرباح والخدمات", Icons.Default.MonetizationOn, Green, onAgencyMonetization, "المال والمستخدمون"),
-            Quad("المكافآت والأكواد", Icons.Default.CardGiftcard, Violet, onPromoCodes, "المال والمستخدمون"),
+            Quad("مركز المال 💰", Icons.Default.AttachMoney, Green, onMoneyCenter, "المال والمستخدمون"),
             Quad("طلبات التطبيقات", Icons.Default.Build, Cyan, onRequestSection, "المال والمستخدمون"),
-            Quad("الإحصائيات والأرباح", Icons.Default.Analytics, Cyan, onStats, "النظام والإعدادات"),
+            Quad("مركز الإحصائيات 📊", Icons.Default.Analytics, Cyan, onStats, "النظام والإعدادات"),
             Quad("إرسال الإشعارات", Icons.Default.Notifications, Amber, onNotifications, "النظام والإعدادات"),
             Quad("التحكم في النظام", Icons.Default.Settings, Color(0xFF94A3B8), onSystemControls, "النظام والإعدادات"),
             Quad("إعدادات حساب المطور", Icons.Default.ManageAccounts, Cyan, onAccountSettings, "النظام والإعدادات"),
             Quad("مفاتيح API", Icons.Default.VpnKey, Cyan, onApiKeys, "النظام والإعدادات"),
-            Quad("استهلاك API", Icons.Default.Bolt, Color(0xFFF59E0B), onApiConsumption, "النظام والإعدادات"),
             Quad("سجل التدقيق", Icons.Default.History, Violet, onAuditLog, "النظام والإعدادات"),
             Quad("نسخ احتياطي واسترجاع", Icons.Default.Backup, Amber, onBackup, "النظام والإعدادات"),
             Quad("مركز البناء", Icons.Default.Construction, Amber, onBuildCenter, "النظام والإعدادات")
         )
         val grouped = items.groupBy { it.group }.toList()
+        var collapsed by remember { mutableStateOf(setOf<String>()) }
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -577,9 +530,16 @@ fun DashboardMainGrid(
         ) {
             grouped.forEach { (group, quads) ->
                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                    DashGroupHeader(group)
+                    DashGroupHeader(
+                        title = group,
+                        count = quads.size,
+                        isCollapsed = group in collapsed,
+                        onToggle = { collapsed = if (group in collapsed) collapsed - group else collapsed + group }
+                    )
                 }
-                items(quads) { quad -> DashCard(quad) }
+                if (group !in collapsed) {
+                    items(quads) { quad -> DashCard(quad) }
+                }
             }
         }
     }
@@ -594,12 +554,23 @@ private data class Quad(
 )
 
 @Composable
-private fun DashGroupHeader(title: String) {
+private fun DashGroupHeader(title: String, count: Int, isCollapsed: Boolean, onToggle: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp).clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Icon(
+            if (isCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+            contentDescription = null,
+            tint = GoldPrimary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(4.dp))
         Text(title, color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(Modifier.width(6.dp))
+        Surface(color = GoldPrimary.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp)) {
+            Text("$count", color = GoldPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = NotoSansFont, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
+        }
         Spacer(Modifier.width(10.dp))
         HorizontalDivider(modifier = Modifier.weight(1f), color = GoldPrimary.copy(alpha = 0.25f))
     }
@@ -1293,80 +1264,99 @@ fun StatsSection(requests: List<AppRequestService.AppRequest>, userCount: Int) {
     val context = LocalContext.current
     val totalRevenue = requests.filter { it.isPaid }.sumOf { it.cost }
     val activeProjects = requests.count { it.status == "in_progress" || it.status == "pending" }
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("🔑 الاستهلاك", "📈 التفاعل والمبيعات", "☁️ السحابة")
 
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item {
-            Text("مراقبة تحليلات فايربيس المباشرة (Firebase Analytics Live)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            LiveFirebaseAnalyticsMonitorCard(context = context)
-        }
-        item {
-            Text("سجلات حارس المحتوى السحابية المباشرة (Cloud Guard Activity)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            LiveCloudGuardLogsCard(context = context)
-        }
-        item {
-            Text("رسم بياني لتفاعل وإنتاجية صناع المحتوى (Engagement Trends)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            WeeklyEngagementTrendsChart(context = context)
-        }
-        item {
-            Text("المساحة السحابية والسيرفر (Firebase & Cloud Storage)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            FirebaseStorageCapacityCard(context = context)
-        }
-        item {
-            Text("اللوحة المرئية لاستهلاك المفاتيح الحقيقي", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            ApiConsumptionChart(context = context)
-        }
-        item {
-            Text("مؤشرات الأداء وصحة النظام وقواعد البيانات (Health & Room DB)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            SystemPerformanceHealthKpiGrid(context = context)
-        }
-        item {
-            Text("المشاريع والمبيعات الحقيقية", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard(
-                    title = "الأرباح الإجمالية",
-                    value = "${totalRevenue}$",
-                    icon = Icons.Default.AttachMoney,
-                    modifier = Modifier.weight(1f)
-                )
-                StatCard(
-                    title = "المشاريع النشطة",
-                    value = "$activeProjects",
-                    icon = Icons.Default.Build,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-        item {
-            Text("قمع التحويل والاحتفاظ (حقيقي من الطلبات)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            RequestFunnelCard(requests = requests)
-        }
-        item {
-            Text("إحصائيات النظام والشبكة الحقيقية", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard(
-                    title = "حالة الخدمة",
-                    value = if (NetworkUtils.isNetworkAvailable(context)) "100% متصل 🟢" else "غير متصل 🔴",
-                    icon = Icons.Default.CloudDone,
-                    modifier = Modifier.weight(1f)
-                )
-                StatCard(
-                    title = "الحسابات والمستخدمين",
-                    value = "$userCount حقيقي",
-                    icon = Icons.Default.Group,
-                    modifier = Modifier.weight(1f)
-                )
+    Column(modifier = Modifier.fillMaxSize()) {
+        CenterTabRow(
+            tabs = tabs,
+            selected = selectedTab,
+            onSelect = { selectedTab = it }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            when (selectedTab) {
+                0 -> {
+                    item {
+                        Text("اللوحة المرئية لاستهلاك المفاتيح الحقيقي", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ApiConsumptionChart(context = context)
+                    }
+                    item {
+                        Text("مؤشرات الأداء وصحة النظام وقواعد البيانات (Health & Room DB)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SystemPerformanceHealthKpiGrid(context = context)
+                    }
+                    item {
+                        Text("إحصائيات النظام والشبكة الحقيقية", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            StatCard(
+                                title = "حالة الخدمة",
+                                value = if (NetworkUtils.isNetworkAvailable(context)) "100% متصل 🟢" else "غير متصل 🔴",
+                                icon = Icons.Default.CloudDone,
+                                modifier = Modifier.weight(1f)
+                            )
+                            StatCard(
+                                title = "الحسابات والمستخدمين",
+                                value = "$userCount حقيقي",
+                                icon = Icons.Default.Group,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+                1 -> {
+                    item {
+                        Text("رسم بياني لتفاعل وإنتاجية صناع المحتوى (Engagement Trends)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        WeeklyEngagementTrendsChart(context = context)
+                    }
+                    item {
+                        Text("المشاريع والمبيعات الحقيقية", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            StatCard(
+                                title = "الأرباح الإجمالية",
+                                value = "${totalRevenue}$",
+                                icon = Icons.Default.AttachMoney,
+                                modifier = Modifier.weight(1f)
+                            )
+                            StatCard(
+                                title = "المشاريع النشطة",
+                                value = "$activeProjects",
+                                icon = Icons.Default.Build,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    item {
+                        Text("قمع التحويل والاحتفاظ (حقيقي من الطلبات)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        RequestFunnelCard(requests = requests)
+                    }
+                }
+                else -> {
+                    item {
+                        Text("مراقبة تحليلات فايربيس المباشرة (Firebase Analytics Live)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LiveFirebaseAnalyticsMonitorCard(context = context)
+                    }
+                    item {
+                        Text("سجلات حارس المحتوى السحابية المباشرة (Cloud Guard Activity)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LiveCloudGuardLogsCard(context = context)
+                    }
+                    item {
+                        Text("المساحة السحابية والسيرفر (Firebase & Cloud Storage)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FirebaseStorageCapacityCard(context = context)
+                    }
+                }
             }
         }
     }
