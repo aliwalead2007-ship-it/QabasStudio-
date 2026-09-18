@@ -327,13 +327,13 @@ fun ProcessingScreen(
                 if (!alreadyHasMedia) {
                     val sceneStartMs = System.currentTimeMillis()
                     try {
-                        val media = AppServices.fetchMedia(scene.description)
+                        val media = AppServices.fetchMedia("${scene.title} ${scene.description}")
                         finalMedia = if (media.isNotEmpty()) {
-                            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.BROLL_FETCH, ProductionPipelineTracker.Result.SUCCESS, "مشهد ${index + 1}: جلب وسائط ناجح", scene.description.take(60), System.currentTimeMillis() - sceneStartMs, pipelineRunId, index)
+                            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.BROLL_FETCH, ProductionPipelineTracker.Result.SUCCESS, "مشهد ${index + 1}: جلب وسائط ناجح", "${scene.title} ${scene.description}".take(60), System.currentTimeMillis() - sceneStartMs, pipelineRunId, index)
                             media
                         } else {
                             val genVideo = AppServices.generateVideo(
-                                sceneDescription = scene.description,
+                                sceneDescription = "${scene.title} ${scene.description}",
                                 durationInSeconds = scene.durationInSeconds,
                                 tempo = scene.tempo,
                                 colors = effectiveColors,
@@ -341,7 +341,7 @@ fun ProcessingScreen(
                                 textAnim = effectiveTextAnim,
                                 visualEffect = scene.visualEffect
                             )
-                            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.BROLL_FETCH, if (genVideo.isNotEmpty()) ProductionPipelineTracker.Result.FALLBACK else ProductionPipelineTracker.Result.FAILURE, "مشهد ${index + 1}: ${if (genVideo.isNotEmpty()) "توليد بديل" else "فشل جلب + توليد"}", scene.description.take(60), System.currentTimeMillis() - sceneStartMs, pipelineRunId, index)
+                            ProductionPipelineTracker.record(context, ProductionPipelineTracker.Stage.BROLL_FETCH, if (genVideo.isNotEmpty()) ProductionPipelineTracker.Result.FALLBACK else ProductionPipelineTracker.Result.FAILURE, "مشهد ${index + 1}: ${if (genVideo.isNotEmpty()) "توليد بديل" else "فشل جلب + توليد"}", "${scene.title} ${scene.description}".take(60), System.currentTimeMillis() - sceneStartMs, pipelineRunId, index)
                             genVideo
                         }
                     } catch (sceneEx: Exception) {

@@ -131,7 +131,7 @@ fun SaveShareScreen(
         val resultFile = try {
             engine.processProject(
                 scenes = scenes,
-                videoQuality = selectedQualityOption.title,
+                videoQuality = selectedQualityOption.preset.name,
                 ambientSound = ambientSound,
                 styleAnalysis = videoStyleAnalysis,
                 onProgress = { progress, message ->
