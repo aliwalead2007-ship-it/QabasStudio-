@@ -129,7 +129,7 @@ object KokoroTtsService {
         try {
             val ids = textToIds(text)
             if (ids.isEmpty()) return@withContext null
-            val longIds = ids.map { it.toLong() }.toLongArray()
+            val longIds = java.nio.LongBuffer.wrap(ids.map { it.toLong() }.toLongArray())
             val inputTensor = OnnxTensor.createTensor(ortEnv!!, longIds, longArrayOf(1, ids.size.toLong()))
             val inputs = mapOf("input_ids" to inputTensor)
             val outputs = session!!.run(inputs)
