@@ -3,7 +3,7 @@ package com.qabas.app
 /**
  * «طبيب مسار الإنتاج» — محرك تشخيص محلي (بلا أي استدعاء شبكة/AI) يقرأ أحداث
  * ProductionPipelineTracker ويحوّل كل فشل/بديل غير طبيعي إلى:
- * مشكلة واضحة + السبب الأرجح + حل عملي قابل للتنفيذ فوراً.
+ * مشكلة واضحة + السبب الأرجح + حل عملي، وبعضها قابل للتنفيذ بضغطة واحدة (actionId).
  *
  * القواعد مبنية على قراءة فعلية لمسارات الفشل والـ fallback المكتوبة في
  * VideoEngineManager.kt و VideoProcessor.kt — وليست تخميناً عاماً.
@@ -23,7 +23,8 @@ data class DiagnosedIssue(
     val cause: String,
     val solution: String,
     val occurrences: Int,
-    val affectedScenes: List<Int>
+    val affectedScenes: List<Int>,
+    val actionId: String? = null
 ) {
     fun toShareText(): String = buildString {
         append("🩺 ${title}\n")
@@ -44,7 +45,8 @@ object PipelineDoctor {
         val severity: IssueSeverity,
         val title: String,
         val cause: String,
-        val solution: String
+        val solution: String,
+        val actionId: String? = null
     )
 
     private val RULES = listOf(
@@ -56,7 +58,8 @@ object PipelineDoctor {
             severity = IssueSeverity.CRITICAL,
             title = "مساحة التخزين غير كافية لبدء الإنتاج",
             cause = "المساحة الحرة في كاش الجهاز أقل من 200MB، والمحرك يرفض البدء عمداً لمنع فشل غير متوقع في وسط العملية.",
-            solution = "حرّر مساحة تخزين حتى تتوفر 500MB على الأقل (احذف ملفات/تطبيقات غير ضرورية)، ثم أعد المحاولة. تنظيف الكاش الأقدم من ساعة يعمل تلقائياً بالفعل."
+            solution = "حرّر مساحة تخزين حتى تتوفر 500MB على الأقل (احذف ملفات/تطبيقات غير ضرورية)، ثم أعد المحاولة. تنظيف الكاش الأقدم من ساعة يعمل تلقائياً بالفعل.",
+            actionId = "clean_cache"
         ),
         Rule(
             id = "media_fetch_fallback",
@@ -103,7 +106,8 @@ object PipelineDoctor {
             severity = IssueSeverity.CRITICAL,
             title = "لا يوجد أي مشهد صالح للدمج — فشل تام في الإنتاج",
             cause = "كل المشاهد المُعالجة، بما فيها الإطار البديل ثلاثي المستويات، فشلت فحص isValidVideoFile. نادراً ما يكون السبب محتوى مشهد واحد — الأرجح أن FFmpegKit نفسه لا ينفّذ أي أمر بنجاح على هذا الجهاز/البناء.",
-            solution = "1) افحص Logcat وقت التشغيل عن UnsatisfiedLinkError أو استثناء من ffmpeg-kit عند أول استدعاء.\n2) جرّب أمر FFmpeg بسيط (نسخ ستريم بلا فلاتر) منفصلاً للتأكد أن المحرك يعمل أصلاً على هذا الجهاز.\n3) تأكد أن ffmpeg-kit-full يغطي معمارية الجهاز (arm64-v8a/armeabi-v7a/x86/x86_64) وأن AGP لا يستثني أي ABI.\n4) راجع اعتماديات smart-exception-java (تعليق build.gradle.kts يحذّر من NoClassDefFoundError وقت التشغيل إن نُسيت)."
+            solution = "1) افحص Logcat وقت التشغيل عن UnsatisfiedLinkError أو استثناء من ffmpeg-kit عند أول استدعاء.\n2) استخدم زر «فحص ذاتي لمحرك FFmpeg» بالأسفل للتأكد فوراً هل المحرك يعمل أصلاً على هذا الجهاز.\n3) تأكد أن ffmpeg-kit-full يغطي معمارية الجهاز (arm64-v8a/armeabi-v7a/x86/x86_64) وأن AGP لا يستثني أي ABI.\n4) راجع اعتماديات smart-exception-java (تعليق build.gradle.kts يحذّر من NoClassDefFoundError وقت التشغيل إن نُسيت).",
+            actionId = "self_test_ffmpeg"
         ),
         Rule(
             id = "merge_direct_failed",
@@ -113,7 +117,8 @@ object PipelineDoctor {
             severity = IssueSeverity.CRITICAL,
             title = "فشل الدمج حتى بالطريقة المباشرة بلا انتقالات",
             cause = "فشل الدمج السينمائي بالانتقالات وأيضاً الدمج المباشر البديل (concat demuxer) معاً، مما يستبعد مشكلة انتقال بعينه ويشير لعطل عام في تنفيذ FFmpeg أو تلف بملفات المشاهد المُدخلة.",
-            solution = "تحقق من صلاحية كل ملفات ready_vid_*.mp4 يدوياً (شغّلها بمشغل خارجي)، وتأكد من تطابق الترميز/الدقة بين كل المشاهد قبل concat."
+            solution = "استخدم زر «فحص ذاتي لمحرك FFmpeg» بالأسفل أولاً لاستبعاد عطل المحرك نفسه، ثم تحقق من صلاحية كل ملفات ready_vid_*.mp4 يدوياً وتطابق ترميز/دقة كل المشاهد قبل concat.",
+            actionId = "self_test_ffmpeg"
         ),
         Rule(
             id = "export_failed",
@@ -150,7 +155,8 @@ object PipelineDoctor {
                         cause = rule.cause,
                         solution = rule.solution,
                         occurrences = matches.size,
-                        affectedScenes = matches.map { it.sceneIndex }.filter { it >= 0 }.distinct().sorted()
+                        affectedScenes = matches.map { it.sceneIndex }.filter { it >= 0 }.distinct().sorted(),
+                        actionId = rule.actionId
                     )
                 )
             }

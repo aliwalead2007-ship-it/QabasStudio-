@@ -1,5 +1,6 @@
 package com.qabas.app
 
+import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.expandVertically
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -32,18 +34,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qabas.app.ui.theme.*
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * قسم «مسار الإنتاج» في لوحة المطور — رصد احترافي حي لكل خطوة في مسار الإنتاج،
- * مع طبيب تشخيص مدمج (PipelineDoctor) يترجم كل فشل إلى مشكلة + سبب + حل.
+ * مع طبيب تشخيص مدمج (PipelineDoctor) يترجم كل فشل إلى مشكلة + سبب + حل،
+ * وبعض الحلول قابلة للتنفيذ بضغطة واحدة (تنظيف الكاش، فحص FFmpeg الذاتي).
  *
  * المزايا:
- * - 🩺 تشخيص فوري لآخر تشغيلة: كل عطل يظهر كبطاقة مشكلة/سبب/حل، مع نسخ سريع للمشاركة.
+ * - 🩺 مؤشر صحة عام لآخر تشغيلة (0-100) يلخّص الوضع بلمحة.
+ * - تشخيص فوري مُجمّع حسب الخطورة: كل عطل كبطاقة مشكلة/سبب/حل، مع نسخ ومشاركة سريعين.
+ * - إجراءات فعلية: تنظيف كاش المحرك، وفحص ذاتي لمحرك FFmpeg بلا انتظار تشغيلة كاملة.
  * - 📊 أكثر المشاكل تكراراً عبر كل التشغيلات — لرصد الأعطال المزمنة لا العرضية.
  * - التقاط مباشر: يتحدث تلقائياً كل ثانيتين فتظهر الخطوات لحظة حدوثها أثناء الإنتاج.
- * - بطاقة «آخر تشغيلة» مع شريط تدفق مرئي يوضح حالة كل مرحلة (تمت/فشلت/بديلة/معلقة).
- * - إحصاءات لكل مرحلة: معدل النجاح + متوسط المدة + عدد المحاولات.
- * - سجل زمني مُجمّع حسب التشغيلة مع مدة كل خطوة.
+ * - بطاقة «آخر تشغيلة» مع شريط تدفق مرئي، إحصاءات لكل مرحلة، وسجل زمني كامل.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +56,7 @@ fun ProductionPipelineSection(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     val events = remember { mutableStateOf(ProductionPipelineTracker.getEvents(context)) }
 
     // التقاط مباشر: تحديث تلقائي كل ثانيتين فتُلتقط الخطوات لحظة وقوعها
@@ -68,12 +73,29 @@ fun ProductionPipelineSection(
     val latestRunEvents = remember(events.value) { ProductionPipelineTracker.getLatestRunEvents(context) }
 
     val latestRunIssues = remember(latestRunEvents) { PipelineDoctor.analyze(latestRunEvents) }
+    val groupedIssues = remember(latestRunIssues) {
+        listOf(IssueSeverity.CRITICAL, IssueSeverity.WARNING, IssueSeverity.INFO)
+            .mapNotNull { sev -> latestRunIssues.filter { it.severity == sev }.takeIf { it.isNotEmpty() }?.let { sev to it } }
+    }
     val recurringIssues = remember(events.value) {
         PipelineDoctor.analyze(events.value).filter { it.occurrences > 1 || it.severity == IssueSeverity.CRITICAL }.take(5)
+    }
+    val healthScore = remember(latestRunIssues) {
+        (100 - latestRunIssues.sumOf {
+            when (it.severity) {
+                IssueSeverity.CRITICAL -> 30
+                IssueSeverity.WARNING -> 10
+                IssueSeverity.INFO -> 2
+            }
+        }).coerceIn(0, 100)
     }
 
     var selectedStage by remember { mutableStateOf<ProductionPipelineTracker.Stage?>(null) }
     val filteredEvents = if (selectedStage != null) events.value.filter { it.stage == selectedStage } else events.value
+
+    // حالة الفحص الذاتي لمحرك FFmpeg
+    var selfTestRunning by remember { mutableStateOf(false) }
+    var selfTestResult by remember { mutableStateOf<PipelineActions.ActionResult?>(null) }
 
     // نبضة حية لمؤشر «التقاط مباشر»
     val pulseTransition = rememberInfiniteTransition(label = "livePulse")
@@ -141,7 +163,13 @@ fun ProductionPipelineSection(
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
 
-            // ── بطاقات الملخص العام ──
+            // ── صحة آخر تشغيلة + ملخص عام ──
+            if (latestRunEvents.isNotEmpty()) {
+                item {
+                    HealthScoreRow(score = healthScore, issueCount = latestRunIssues.size)
+                }
+            }
+
             item {
                 val totalSuccess = events.value.count { it.result == ProductionPipelineTracker.Result.SUCCESS }
                 val totalFailure = events.value.count { it.result == ProductionPipelineTracker.Result.FAILURE }
@@ -160,7 +188,73 @@ fun ProductionPipelineSection(
                 }
             }
 
-            // ── 🩺 تشخيص آخر تشغيلة: المشكلة + السبب + الحل ──
+            // ── فحص ذاتي سريع لمحرك FFmpeg ──
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF0D1320),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF22D3EE).copy(alpha = 0.25f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = Color(0xFF22D3EE), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "فحص ذاتي لمحرك FFmpeg",
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = CairoFont
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    selfTestRunning = true
+                                    selfTestResult = null
+                                    scope.launch {
+                                        val result = PipelineActions.selfTestFFmpeg(context)
+                                        selfTestResult = result
+                                        selfTestRunning = false
+                                    }
+                                },
+                                enabled = !selfTestRunning,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22D3EE), contentColor = Color.Black),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                if (selfTestRunning) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.Black)
+                                } else {
+                                    Text("شغّل الفحص", fontSize = 11.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        selfTestResult?.let { r ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                color = (if (r.success) Color(0xFF10B981) else Color(0xFFEF4444)).copy(alpha = 0.10f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    r.message,
+                                    color = if (r.success) Color(0xFF10B981) else Color(0xFFEF4444),
+                                    fontSize = 10.5.sp,
+                                    fontFamily = CairoFont,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 🩺 تشخيص آخر تشغيلة: مُجمّع حسب الخطورة، المشكلة + السبب + الحل ──
             if (latestRunEvents.isNotEmpty()) {
                 item {
                     Row(
@@ -169,7 +263,7 @@ fun ProductionPipelineSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.MedicalServices, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 "تشخيص آخر تشغيلة",
@@ -208,7 +302,7 @@ fun ProductionPipelineSection(
                                 modifier = Modifier.fillMaxWidth().padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                                LottieBrainVisualizer(status = BrainStatus.SUCCESS, size = 40.dp)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     "لا مشاكل مكتشفة في آخر تشغيلة — كل المراحل التي عملت اكتملت بلا أعطال.",
@@ -221,8 +315,18 @@ fun ProductionPipelineSection(
                         }
                     }
                 } else {
-                    items(latestRunIssues, key = { "diag_${it.id}" }) { issue ->
-                        DiagnosedIssueCard(issue, clipboard)
+                    groupedIssues.forEach { (severity, issuesInGroup) ->
+                        item(key = "sev_header_${severity.name}") {
+                            SeverityGroupHeader(severity, issuesInGroup.size)
+                        }
+                        items(issuesInGroup, key = { "diag_${it.id}" }) { issue ->
+                            DiagnosedIssueCard(
+                                issue = issue,
+                                clipboard = clipboard,
+                                context = context,
+                                scope = scope
+                            )
+                        }
                     }
                 }
             }
@@ -434,13 +538,103 @@ fun ProductionPipelineSection(
     }
 }
 
-/** بطاقة مشكلة مُشخَّصة: العنوان + الخطورة + السبب + الحل، مع نسخ سريع. */
+/** صف مؤشر الصحة العام لآخر تشغيلة: دائرة نسبة + وصف حالة. */
+@Composable
+private fun HealthScoreRow(score: Int, issueCount: Int) {
+    val color = when {
+        score >= 80 -> Color(0xFF10B981)
+        score >= 50 -> Color(0xFFF59E0B)
+        else -> Color(0xFFEF4444)
+    }
+    val label = when {
+        score >= 80 -> "سليم"
+        score >= 50 -> "يحتاج انتباه"
+        else -> "حرج"
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = color.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(54.dp)) {
+                CircularProgressIndicator(
+                    progress = { score / 100f },
+                    modifier = Modifier.fillMaxSize(),
+                    color = color,
+                    trackColor = color.copy(alpha = 0.15f),
+                    strokeWidth = 5.dp,
+                    strokeCap = StrokeCap.Round
+                )
+                Text("$score", color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = NotoSansFont)
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column {
+                Text(
+                    "صحة آخر تشغيلة: $label",
+                    color = color,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = CairoFont
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    if (issueCount > 0) "$issueCount مشكلة مكتشفة — التفاصيل بالأسفل" else "كل المراحل عملت بلا أعطال",
+                    color = TextSecondary,
+                    fontSize = 10.sp,
+                    fontFamily = NotoSansFont
+                )
+            }
+        }
+    }
+}
+
+/** ترويسة مجموعة مشاكل بحسب الخطورة. */
+@Composable
+private fun SeverityGroupHeader(severity: IssueSeverity, count: Int) {
+    val color = Color(severity.colorHex)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(color))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            severity.label,
+            color = color,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = CairoFont
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Surface(color = color.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+            Text(
+                "$count",
+                color = color,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = NotoSansFont,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+            )
+        }
+    }
+}
+
+/** بطاقة مشكلة مُشخَّصة: العنوان + الخطورة + السبب + الحل، مع نسخ/مشاركة، وإجراء فعلي عند توفره. */
 @Composable
 private fun DiagnosedIssueCard(
     issue: DiagnosedIssue,
-    clipboard: androidx.compose.ui.platform.ClipboardManager
+    clipboard: androidx.compose.ui.platform.ClipboardManager,
+    context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope
 ) {
     var expanded by remember(issue.id) { mutableStateOf(true) }
+    var actionRunning by remember(issue.id) { mutableStateOf(false) }
+    var actionResult by remember(issue.id) { mutableStateOf<PipelineActions.ActionResult?>(null) }
     val severityColor = Color(issue.severity.colorHex)
 
     Card(
@@ -473,20 +667,7 @@ private fun DiagnosedIssueCard(
                             lineHeight = 17.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(color = severityColor.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
-                                Text(
-                                    issue.severity.label,
-                                    color = severityColor,
-                                    fontSize = 8.5.sp,
-                                    fontFamily = CairoFont,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("${issue.stage.label} · تكرر ${issue.occurrences} مرة", color = TextSecondary, fontSize = 9.sp, fontFamily = NotoSansFont)
-                        }
+                        Text("${issue.stage.label} · تكرر ${issue.occurrences} مرة", color = TextSecondary, fontSize = 9.sp, fontFamily = NotoSansFont)
                         if (issue.affectedScenes.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(3.dp))
                             Text(
@@ -524,18 +705,87 @@ private fun DiagnosedIssueCard(
                             Text(issue.solution, color = TextPrimary, fontSize = 11.sp, fontFamily = CairoFont, lineHeight = 16.sp)
                         }
                     }
+
+                    if (issue.actionId != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                actionRunning = true
+                                actionResult = null
+                                scope.launch {
+                                    val result = when (issue.actionId) {
+                                        "clean_cache" -> PipelineActions.cleanEngineCache(context)
+                                        "self_test_ffmpeg" -> PipelineActions.selfTestFFmpeg(context)
+                                        else -> PipelineActions.ActionResult(false, "إجراء غير معروف")
+                                    }
+                                    actionResult = result
+                                    actionRunning = false
+                                }
+                            },
+                            enabled = !actionRunning,
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary, contentColor = Color.Black),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            if (actionRunning) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.Black)
+                            } else {
+                                Text(
+                                    when (issue.actionId) {
+                                        "clean_cache" -> "نظّف الكاش الآن"
+                                        "self_test_ffmpeg" -> "فحص ذاتي لـ FFmpeg"
+                                        else -> "تنفيذ الحل"
+                                    },
+                                    fontSize = 11.sp,
+                                    fontFamily = CairoFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        actionResult?.let { r ->
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                r.message,
+                                color = if (r.success) Color(0xFF10B981) else Color(0xFFEF4444),
+                                fontSize = 10.sp,
+                                fontFamily = CairoFont,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable {
+                                try {
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, issue.toShareText())
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "مشاركة التشخيص").apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    })
+                                } catch (_: Exception) { }
+                            }
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مشاركة", color = TextSecondary, fontSize = 10.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.clickable { clipboard.setText(AnnotatedString(issue.toShareText())) }
                         ) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("نسخ هذه المشكلة", color = GoldPrimary, fontSize = 10.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                            Text("نسخ", color = GoldPrimary, fontSize = 10.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
