@@ -51,6 +51,7 @@ object KeyVault {
     val azureSpeechKey: String get() = resolve("azure_speech_key", BuildConfig.AZURE_SPEECH_KEY)
     val azureSpeechRegion: String get() = resolve("azure_speech_region", BuildConfig.AZURE_SPEECH_REGION)
     val elevenlabs: String get() = resolve("elevenlabs_key", BuildConfig.ELEVENLABS_API_KEY)
+    val openrouter: String get() = resolve("openrouter_key", BuildConfig.OPENROUTER_API_KEY)
     val pexels: String get() = resolve("pexels_key", BuildConfig.PEXELS_API_KEY)
     val pixabay: String get() = resolve("pixabay_key", BuildConfig.PIXABAY_API_KEY)
     val coverr: String get() = (prefs().getString("coverr_key", "") ?: "").trim()
@@ -64,6 +65,7 @@ object KeyVault {
         "azure_speech_key" -> azureSpeechKey
         "azure_speech_region" -> azureSpeechRegion
         "elevenlabs_key" -> elevenlabs
+        "openrouter_key" -> openrouter
         "pexels_key" -> pexels
         "pixabay_key" -> pixabay
         else -> (prefs().getString(prefsKey, "") ?: "").trim()
@@ -659,12 +661,17 @@ object RealGeminiService {
     suspend fun generateDeveloperPrompts(request: AppRequestService.AppRequest): String = withContext(Dispatchers.IO) {
         val apiKey = KeyVault.gemini
         if (apiKey.isBlank() || apiKey == "YOUR_GEMINI_API_KEY") {
-            return@withContext "حدث خطأ أثناء إنشاء الأوامر." 
+            // بلا Gemini: جرّب OpenRouter المجاني ثم المخطط المحلي
+            val orKey = KeyVault.openrouter
+            if (orKey.isNotBlank()) {
+                OpenRouterService.generatePlan(request, orKey)?.let { return@withContext it }
+            }
+            return@withContext LocalPromptPlanner.generatePlan(request)
         }
         
         return@withContext NetworkUtils.safeApiCall(
             context = AppServices.appContext,
-            fallback = { "حدث خطأ أثناء إنشاء الأوامر." }
+            fallback = { LocalPromptPlanner.generatePlan(request) }
         ) {
             val systemPrompt = """
                 أنت خبير في هندسة البرمجيات وتطوير تطبيقات Android باستخدام Jetpack Compose.
@@ -706,7 +713,11 @@ object RealGeminiService {
                 
             val response = ApiUsageTracker.track(AppServices.appContext, "Gemini") { client.newCall(httpRequest).execute() }
             if (!response.isSuccessful) {
-                return@safeApiCall "فشل توليد التوجيهات"
+                // فشل Gemini: OpenRouter المجاني ثم المحلي
+                KeyVault.openrouter.takeIf { it.isNotBlank() }?.let { orKey ->
+                    OpenRouterService.generatePlan(request, orKey)?.let { return@safeApiCall it }
+                }
+                return@safeApiCall LocalPromptPlanner.generatePlan(request)
             }
             
             val responseData = response.body?.string() ?: ""
@@ -719,10 +730,13 @@ object RealGeminiService {
                 val parts = contentObj?.optJSONArray("parts")
                 if (parts != null && parts.length() > 0) {
                     val text = parts.getJSONObject(0).optString("text", "")
-                    return@safeApiCall text
+                    if (text.isNotBlank()) return@safeApiCall text
                 }
             }
-            "فشل توليد التوجيهات"
+            KeyVault.openrouter.takeIf { it.isNotBlank() }?.let { orKey ->
+                OpenRouterService.generatePlan(request, orKey)?.let { return@safeApiCall it }
+            }
+            LocalPromptPlanner.generatePlan(request)
         }
     }
 }

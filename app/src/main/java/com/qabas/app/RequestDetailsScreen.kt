@@ -112,6 +112,69 @@ fun RequestDetailsScreen(requestId: String, onBack: () -> Unit, onOpenChat: () -
                 }
 
 
+                // بطاقة عرض السعر: قبول / رفض من العميل
+                if (req.priceStatus == "offered" && !req.isPaid) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, GoldPrimary.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                            .background(Color(0xFF1A1503), RoundedCornerShape(12.dp))
+                            .padding(20.dp)
+                    ) {
+                        Column {
+                            Text("📋 عرض سعر من المطور", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("تكلفة تنفيذ «${req.title}»: ${req.cost}$", color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("لن يبدأ العمل قبل موافقتك. يمكنك الرفض وسيقترح المطور سعراً جديداً.", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Button(
+                                    onClick = {
+                                        AppRequestService.updateRequestProgressAndPayment(context, req.id, priceStatus = "accepted")
+                                        context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
+                                            .edit().putBoolean("priced_${req.id}", true).apply()
+                                        AppRequestService.sendMessage(
+                                            context,
+                                            AppRequestService.ChatMessage(
+                                                requestId = req.id, senderEmail = req.userEmail,
+                                                isDeveloper = false,
+                                                message = "قبلت عرض السعر ✅ (${req.cost}$) — تفضل بالبدء."
+                                            )
+                                        )
+                                        request.value = request.value?.copy(priceStatus = "accepted")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("أقبل ✅", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        AppRequestService.updateRequestProgressAndPayment(context, req.id, priceStatus = "rejected")
+                                        AppRequestService.sendMessage(
+                                            context,
+                                            AppRequestService.ChatMessage(
+                                                requestId = req.id, senderEmail = req.userEmail,
+                                                isDeveloper = false,
+                                                message = "السعر غير مناسب لي ❌ — هل يمكن تخفيضه؟"
+                                            )
+                                        )
+                                        request.value = request.value?.copy(priceStatus = "rejected")
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444))
+                                ) {
+                                    Text("أرفض", color = Color(0xFFEF4444), fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 // قسم الدفع والتقدم
                 if (req.status != "pending") {
                     Box(

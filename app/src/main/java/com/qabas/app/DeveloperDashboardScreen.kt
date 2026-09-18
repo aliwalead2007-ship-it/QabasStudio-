@@ -622,38 +622,112 @@ fun QuickMetric(icon: ImageVector, title: String, value: String) {
 @Composable
 fun RequestsSection(
     context: Context,
-    requests: List<AppRequestService.AppRequest>, 
+    requests: List<AppRequestService.AppRequest>,
     onOpenChat: (String) -> Unit,
     onRefresh: () -> Unit
 ) {
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("قائمة الطلبات المترددة (${requests.size})", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Row {
+    var statusTab by remember { mutableStateOf("all") }
+    var paidFilter by remember { mutableStateOf("all") }
+    var query by remember { mutableStateOf("") }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    val pendingCount = requests.count { it.status == "pending" }
+    val progressCount = requests.count { it.status == "in_progress" }
+    val doneCount = requests.count { it.status == "completed" }
+
+    val visible = requests.filter { req ->
+        (statusTab == "all" || req.status == statusTab) &&
+            (paidFilter == "all" ||
+                (paidFilter == "paid" && req.isPaid) ||
+                (paidFilter == "free" && !req.isPaid)) &&
+            (query.isBlank() ||
+                req.title.contains(query, ignoreCase = true) ||
+                req.userEmail.contains(query, ignoreCase = true) ||
+                req.goal.contains(query, ignoreCase = true))
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("تأكيد تصفير الطلبات؟", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold) },
+            text = { Text("سيُحفظ نسخة احتياطية تلقائياً قبل المسح (${requests.size} طلب). هل أنت متأكد؟", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 13.sp) },
+            confirmButton = {
                 Button(
                     onClick = {
-                        // Clear requests
+                        // نسخة احتياطية تلقائية قبل المسح
                         val prefs = context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
+                        val raw = prefs.getString("requests", "[]") ?: "[]"
+                        context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE).edit()
+                            .putString("requests_backup_${System.currentTimeMillis()}", raw)
+                            .apply()
                         prefs.edit().clear().apply()
+                        showClearConfirm = false
                         onRefresh()
-                        Toast.makeText(context, "تم تصفير جميع الطلبات بنجاح", Toast.LENGTH_SHORT).show()
+                        AuditLogger.log(context, "requests_cleared", "تصفير ${requests.size} طلب (مع نسخة احتياطية)")
+                        Toast.makeText(context, "تم التصفير مع حفظ نسخة احتياطية ✅", Toast.LENGTH_SHORT).show()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF331111)),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("تصفير الطلبات", color = Color.Red, fontFamily = NotoSansFont, fontSize = 12.sp)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) { Text("نعم، صفّر", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text("إلغاء", color = GoldPrimary, fontFamily = CairoFont)
                 }
+            },
+            containerColor = CardSurface
+        )
+    }
+
+    Column {
+        // ── شريط الحالة: كانبان مصغر ──
+        CenterTabRow(
+            tabs = listOf(
+                "الكل (${requests.size})",
+                "🆕 جديد ($pendingCount)",
+                "⚙️ قيد التنفيذ ($progressCount)",
+                "✅ مكتمل ($doneCount)"
+            ),
+            selected = listOf("all", "pending", "in_progress", "completed").indexOf(statusTab),
+            onSelect = {
+                statusTab = listOf("all", "pending", "in_progress", "completed")[it]
+            }
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // ── بحث + فلتر الدفع + تصفير آمن ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("بحث بالعنوان أو البريد…", fontSize = 12.sp, fontFamily = NotoSansFont) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = GoldPrimary,
+                    unfocusedBorderColor = Color(0xFF1E293B),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
+            )
+            IconButton(onClick = { showClearConfirm = true }) {
+                Icon(Icons.Default.DeleteSweep, contentDescription = "تصفير آمن", tint = Color(0xFFEF4444))
             }
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        CenterTabRow(
+            tabs = listOf("الكل", "💰 مدفوع", "🆓 مجاني"),
+            selected = listOf("all", "paid", "free").indexOf(paidFilter),
+            onSelect = { paidFilter = listOf("all", "paid", "free")[it] }
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
-        if (requests.isEmpty()) {
+        if (visible.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -665,46 +739,248 @@ fun RequestsSection(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Inbox, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(56.dp))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("لا توجد طلبات تطبيقات حالياً (السجل فارغ)", color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(
+                        if (requests.isEmpty()) "لا توجد طلبات تطبيقات حالياً (السجل فارغ)" else "لا نتائج مطابقة للفلتر الحالي",
+                        color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("عند إرسال المستخدمين لطلبات جيدة ستظهر هنا فوراً", color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
                 }
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(requests) { req ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { onOpenChat(req.id) },
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(req.title, color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Surface(
-                                    color = if (req.isPaid) GoldPrimary else Color.Gray,
-                                    shape = RoundedCornerShape(4.dp)
-                                ) {
-                                    Text(
-                                        if (req.isPaid) "مدفوع (${req.cost}$)" else "مجاني",
-                                        color = DeepSlate,
-                                        fontSize = 11.sp,
-                                        fontFamily = CairoFont,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("المستخدم: ${req.userEmail}", color = Color.LightGray, fontSize = 12.sp, fontFamily = NotoSansFont)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(req.goal, color = Color.White, fontFamily = NotoSansFont, fontSize = 14.sp)
-                        }
-                    }
+                items(visible, key = { it.id }) { req ->
+                    RequestCard(
+                        req = req,
+                        context = context,
+                        onOpenChat = onOpenChat,
+                        onRefresh = onRefresh
+                    )
                 }
             }
         }
+    }
+}
+
+/** بطاقة طلب غنية: حدّ ملوّن حسب الحالة + وقت نسبي + شريط تقدم + إجراءات سريعة. */
+@Composable
+private fun RequestCard(
+    req: AppRequestService.AppRequest,
+    context: Context,
+    onOpenChat: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    val statusColor = when (req.status) {
+        "in_progress" -> Color(0xFF22D3EE)
+        "completed" -> Color(0xFF10B981)
+        else -> Color(0xFFE8C547)
+    }
+    val statusLabel = when (req.status) {
+        "in_progress" -> "⚙️ قيد التنفيذ"
+        "completed" -> "✅ مكتمل"
+        else -> "🆕 جديد"
+    }
+    var expanded by remember(req.id) { mutableStateOf(false) }
+    var showReplaceDialog by remember { mutableStateOf(false) }
+    val linkedRepo = remember(req.id) {
+        context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
+            .getString("repo_${req.id}", null)
+    }
+
+    fun applyChange(status: String? = null, isPaid: Boolean? = null, label: String) {
+        AppRequestService.updateRequestProgressAndPayment(
+            context, req.id, status = status, isPaid = isPaid,
+            progress = if (status == "completed") 100 else if (status == "in_progress") req.progress.coerceAtLeast(10) else req.progress
+        )
+        // إكمال الطلب يفك الربط النشط تلقائياً
+        if (status == "completed" && AppRequestService.getActiveBuildRequest(context)?.id == req.id) {
+            AppRequestService.clearActiveBuildRequest(context)
+        }
+        AuditLogger.log(context, "request_status", "$label: ${req.title} (${req.userEmail})")
+        onRefresh()
+        Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
+    }
+
+    fun linkToBuild() {
+        AppRequestService.updateRequestProgressAndPayment(
+            context, req.id, status = "in_progress",
+            progress = req.progress.coerceAtLeast(10)
+        )
+        AppRequestService.setActiveBuildRequest(context, req.id)
+        AuditLogger.log(context, "request_build", "ربط بالبناء: ${req.title}")
+        onRefresh()
+        Toast.makeText(context, "🛠️ رُبط بمركز البناء — افتح «مركز البناء» من اللوحة", Toast.LENGTH_LONG).show()
+    }
+
+    if (showReplaceDialog) {
+        AlertDialog(
+            onDismissRequest = { showReplaceDialog = false },
+            title = { Text("طلب آخر قيد البناء!", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+            text = { Text("يوجد طلب نشط مربوط بمركز البناء. الربط الجديد سيستبدله — أكمل الطلب الحالي أولاً أو تابع.", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 13.sp) },
+            confirmButton = {
+                Button(
+                    onClick = { showReplaceDialog = false; linkToBuild() },
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary)
+                ) { Text("استبدل", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReplaceDialog = false }) {
+                    Text("إلغاء", color = GoldPrimary, fontFamily = CairoFont)
+                }
+            },
+            containerColor = CardSurface
+        )
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, statusColor.copy(alpha = 0.6f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    req.title, color = GoldPrimary, fontFamily = TajawalFont,
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f)
+                )
+                Surface(color = statusColor.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+                    Text(
+                        statusLabel, color = statusColor, fontSize = 10.sp,
+                        fontFamily = CairoFont, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("👤 ${req.userEmail}", color = Color.LightGray, fontSize = 11.sp, fontFamily = NotoSansFont)
+                Text("🕐 ${relativeTime(req.timestamp)}", color = Color.Gray, fontSize = 11.sp, fontFamily = NotoSansFont)
+            }
+            if (linkedRepo != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(color = Color(0xFF8B5CF6).copy(alpha = 0.12f), shape = RoundedCornerShape(6.dp)) {
+                    Text(
+                        "📦 $linkedRepo",
+                        color = Color(0xFF8B5CF6), fontSize = 10.sp,
+                        fontFamily = NotoSansFont, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        maxLines = 1
+                    )
+                }
+            }
+            // حالة التفاوض على السعر
+            val priceLabel = when (req.priceStatus) {
+                "offered" -> "📋 عرض مرسل (${req.cost}$) — بانتظار العميل" to Color(0xFFF59E0B)
+                "accepted" -> "✅ السعر مقبول (${req.cost}$)" to Color(0xFF10B981)
+                "rejected" -> "❌ العميل رفض — اعرض جديداً" to Color(0xFFEF4444)
+                else -> null
+            }
+            if (priceLabel != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(color = priceLabel.second.copy(alpha = 0.12f), shape = RoundedCornerShape(6.dp)) {
+                    Text(
+                        priceLabel.first,
+                        color = priceLabel.second, fontSize = 10.sp,
+                        fontFamily = CairoFont, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                req.goal, color = Color.White, fontFamily = NotoSansFont, fontSize = 14.sp,
+                maxLines = if (expanded) Int.MAX_VALUE else 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { expanded = !expanded }
+            )
+            if (req.progress > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.weight(1f).height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color(0xFF1E293B))
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxHeight()
+                                .fillMaxWidth((req.progress.coerceIn(0, 100)) / 100f)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(statusColor)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("${req.progress}٪", color = statusColor, fontSize = 11.sp, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // إجراءات سريعة حسب الحالة
+                if (req.status == "pending") {
+                    Button(
+                        onClick = { applyChange(status = "in_progress", label = "بدأ التنفيذ ⚙️") },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22D3EE), contentColor = Color.Black),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) { Text("ابدأ ⚙️", fontSize = 11.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+                }
+                if (req.status == "in_progress") {
+                    Button(
+                        onClick = { applyChange(status = "completed", label = "اكتمل ✅") },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.Black),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) { Text("أكمل ✅", fontSize = 11.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+                }
+                if (!req.isPaid) {
+                    OutlinedButton(
+                        onClick = { applyChange(isPaid = true, label = "تمييز كمدفوع 💰") },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary)
+                    ) { Text("مدفوع 💰", fontSize = 11.sp, color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+                } else {
+                    Text("مدفوع (${req.cost}$)", color = GoldPrimary, fontSize = 11.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                }
+                // الجسر: قبول ← ربط بمركز البناء (مع حارس الاستبدال)
+                Button(
+                    onClick = {
+                        val active = AppRequestService.getActiveBuildRequest(context)
+                        if (active != null && active.id != req.id) showReplaceDialog = true
+                        else linkToBuild()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary, contentColor = DeepSlate),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) { Text("🛠️ بناء", fontSize = 11.sp, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+                Spacer(modifier = Modifier.weight(1f))
+                FilledTonalButton(
+                    onClick = { onOpenChat(req.id) },
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = GoldPrimary.copy(alpha = 0.15f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("محادثة", fontSize = 11.sp, color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/** وقت نسبي عربي: منذ 5 دقائق / ساعتين / 3 أيام… */
+private fun relativeTime(timestamp: Long): String {
+    val diff = System.currentTimeMillis() - timestamp
+    val minutes = diff / 60_000
+    val hours = diff / 3_600_000
+    val days = diff / 86_400_000
+    return when {
+        minutes < 1 -> "الآن"
+        minutes < 60 -> "منذ $minutes د"
+        hours < 24 -> "منذ $hours س"
+        days == 1L -> "أمس"
+        days < 30 -> "منذ $days يوم"
+        else -> "منذ ${days / 30} شهر"
     }
 }
 

@@ -69,6 +69,8 @@ fun AiEditorSection(
     var commitMsg by remember { mutableStateOf("") }
     var loadedFileContent by remember { mutableStateOf("") }
     var answerSource by remember { mutableStateOf<String?>(null) }
+    var lastUndo by remember { mutableStateOf<UndoState?>(null) }
+    var showDiff by remember { mutableStateOf(false) }
     var fileError by remember { mutableStateOf<AiFailure?>(null) }
     var chatError by remember { mutableStateOf<AiFailure?>(null) }
     var saveError by remember { mutableStateOf<AiFailure?>(null) }
@@ -95,11 +97,19 @@ fun AiEditorSection(
         GitHubRepoClient(owner = owner, repo = repo, token = if (token.isNotBlank()) token else "")
     }
 
+    // الفرع العامل الحقيقي (main أو master) — يُكتشف من GitHub ولا يُفترض أبداً
+    var workBranch by remember(owner, repo) { mutableStateOf("main") }
+    LaunchedEffect(owner, repo) {
+        workBranch = withContext(Dispatchers.IO) {
+            runCatching { repoClient.getDefaultBranch() }.getOrDefault("main")
+        }
+    }
+
     suspend fun loadRepoTree(path: String = "") {
         repoTreeLoading = true
         repoTreeError = null
         scope.launch {
-            val tree = repoClient.getTree(branch = "main", path = path)
+            val tree = repoClient.getTree(branch = workBranch, path = path)
             withContext(Dispatchers.Main) {
                 repoTree = tree ?: emptyList()
                 repoTreeLoading = false
@@ -112,7 +122,7 @@ fun AiEditorSection(
     suspend fun loadCommits() {
         commitsLoading = true
         scope.launch {
-            val commits = repoClient.getCommits()
+            val commits = repoClient.getCommits(workBranch)
             withContext(Dispatchers.Main) {
                 repoCommits = commits ?: emptyList()
                 commitsLoading = false
@@ -134,7 +144,7 @@ fun AiEditorSection(
     suspend fun loadFileContent(file: RepoFile) {
         fileContentLoading = true
         scope.launch {
-            val content = repoClient.getFileContent(file.path)
+            val content = repoClient.getFileContent(file.path, workBranch)
             withContext(Dispatchers.Main) {
                 fileContent = content?.let {
                     if (content.encoding == "base64") {
@@ -151,7 +161,7 @@ fun AiEditorSection(
         if (newBranchName.isBlank()) return
         branchCreating = true
         scope.launch {
-            val sha = repoClient.getBranchSha()
+            val sha = repoClient.getBranchSha(workBranch)
             val ok = sha?.let { repoClient.createBranch(newBranchName.trim(), it) } ?: false
             withContext(Dispatchers.Main) {
                 branchCreating = false
@@ -208,7 +218,7 @@ fun AiEditorSection(
         fileError = null
         scope.launch {
             val enc = URLEncoder.encode(filePath.trim(), "UTF-8").replace("+", "%20")
-            val json = apiGet("/repos/$owner/$repo/contents/$enc?ref=main")
+            val json = apiGet("/repos/$owner/$repo/contents/$enc?ref=$workBranch")
             if (json == null || json.optString("type", "") != "file") {
                 withContext(Dispatchers.Main) {
                     fileError = if (json == null) describeHttpFailure(lastHttpCode, "load")
@@ -334,19 +344,30 @@ fun AiEditorSection(
         messages = messages + ChatMsg(fromUser = false, text = "…", thinking = true)
         busy = true
         scope.launch {
+            // سياق طلب البناء النشط (إن وُجد) — يُحقن في البرومبت
+            val activeReq = AppRequestService.getActiveBuildRequest(context)
             val prompt = buildString {
                 append("أنت محرر كود خبير في مشروع أندرويد (Kotlin + Jetpack Compose).\n")
+                if (activeReq != null) {
+                    append("سياق مهمة البناء الحالية — طلب العميل: «${activeReq.title}»: ${activeReq.description} (الهدف: ${activeReq.goal}).\n")
+                    if (!activeReq.generatedPrompts.isNullOrBlank()) {
+                        append("خطة التنفيذ المعتمدة:\n${activeReq.generatedPrompts.take(2000)}\n")
+                    }
+                }
                 append("الملف: $filePath\n")
                 append("محتواه الحالي كاملاً:\n```\n$loadedFileContent\n```\n")
                 append("طلب المستخدم: $finalOrder\n\n")
                 append("القواعد: أعد كتابة الملف كاملاً بعد التعديل داخل كتلة كود واحدة فقط (```)، بلا شرح خارجها إلا سطر واحد يصف ما فعلته قبل الكتلة. لا تحذف أي جزء لا يخص الطلب. حافظ على البنية والاستيرادات.")
             }
             val system = "أنت محرر كود محترف. تجيب بسطر وصف واحد ثم الملف الكامل داخل كتلة كود واحدة."
-            // 1) مجاني بلا مفتاح (Pollinations ثم LLM7) • 2) مفاتيح المستخدم (OpenAI ← Groq ← Gemini)
+            // 1) OpenRouter بمفتاحك (نماذج مجانية قوية) • 2) مجاني بلا مفتاح • 3) مفاتيحك الأخرى
             var source: String? = null
-            var answer: String? = pollinationsChat(prompt, system)?.also { source = "مجاني" }
+            val orKey = KeyVault.openrouter
+            var answer: String? = if (orKey.isNotBlank()) {
+                OpenRouterService.chat(orKey, system, prompt)?.also { source = "OpenRouter 🆓" }
+            } else null
             if (answer == null) {
-                answer = llm7Chat(prompt, system)?.also { source = "مجاني" }
+                answer = pollinationsChat(prompt, system)?.also { source = "مجاني" }
             }
             if (answer == null) {
                 answer = AppServices.chatWithAssistant(listOf(Pair(true, prompt)), system).also { source = "مفتاحك" }
@@ -361,6 +382,7 @@ fun AiEditorSection(
                 )
                 answerSource = source
                 proposal = code
+                showDiff = false
                 chatError = when {
                     isServiceError -> AiFailure(
                         "النموذج لم يرد",
@@ -389,13 +411,16 @@ fun AiEditorSection(
         saveError = null
         scope.launch {
             var saveCode: Int? = null
+            var newSha: String? = null
+            val previousContent = loadedFileContent
+            val previousSha = fileSha
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     val body = JSONObject()
                         .put("message", commitMsg.ifBlank { "تعديل $filePath عبر محرر المحادثة" })
                         .put("content", Base64.encodeToString(code.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
                         .put("sha", fileSha)
-                        .put("branch", "main")
+                        .put("branch", workBranch)
                         .toString()
                         .toRequestBody("application/json".toMediaType())
                     val req = Request.Builder()
@@ -407,6 +432,10 @@ fun AiEditorSection(
                         .build()
                     client.newCall(req).execute().use {
                         saveCode = it.code
+                        newSha = runCatching {
+                            JSONObject(it.body?.string().orEmpty())
+                                .optJSONObject("content")?.optString("sha")
+                        }.getOrNull()?.takeIf { s -> s.isNotBlank() }
                         it.code == 200 || it.code == 201
                     }
                 }.getOrDefault(false)
@@ -414,10 +443,63 @@ fun AiEditorSection(
             withContext(Dispatchers.Main) {
                 busy = false
                 if (ok) {
-                    messages = messages + ChatMsg(fromUser = false, text = "تم حفظ التعديل كـ commit على main. يمكنك الآن بناء النسخة الجديدة.")
+                    messages = messages + ChatMsg(fromUser = false, text = "تم حفظ التعديل كـ commit على $workBranch. يمكنك الآن بناء النسخة الجديدة.")
+                    // للتراجع: نحفظ الحالة السابقة + نحدّث الحالية لمواصلة التحرير بلا إعادة تحميل
+                    lastUndo = UndoState(previousContent, previousSha, commitMsg.ifBlank { "تعديل $filePath عبر محرر المحادثة" })
+                    loadedFileContent = code
+                    if (!newSha.isNullOrBlank()) fileSha = newSha
                     proposal = null
                     commitMsg = ""
                     AuditLogger.log(context, "ai_edit_commit", "حفظ تعديل $filePath عبر محرر المحادثة")
+                    onFileCommitted()
+                } else {
+                    saveError = describeHttpFailure(saveCode, "save")
+                }
+            }
+        }
+    }
+
+    /** تراجع عن آخر حفظ: يعيد المحتوى السابق كـ commit جديد. */
+    fun undoLastCommit() {
+        val undo = lastUndo ?: return
+        if (undo.sha.isNullOrBlank()) return
+        busy = true
+        scope.launch {
+            var saveCode: Int? = null
+            var newSha: String? = null
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val body = JSONObject()
+                        .put("message", "تراجع عن: ${undo.message}")
+                        .put("content", Base64.encodeToString(undo.content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+                        .put("sha", fileSha)
+                        .put("branch", workBranch)
+                        .toString()
+                        .toRequestBody("application/json".toMediaType())
+                    val req = Request.Builder()
+                        .url("https://api.github.com/repos/$owner/$repo/contents/${URLEncoder.encode(filePath.trim(), "UTF-8").replace("+", "%20")}")
+                        .header("Accept", "application/vnd.github.v3+json")
+                        .header("User-Agent", "Qabas-Studio")
+                        .header("Authorization", "Bearer $token")
+                        .put(body)
+                        .build()
+                    client.newCall(req).execute().use {
+                        saveCode = it.code
+                        newSha = runCatching {
+                            JSONObject(it.body?.string().orEmpty())
+                                .optJSONObject("content")?.optString("sha")
+                        }.getOrNull()?.takeIf { s -> s.isNotBlank() }
+                        it.code == 200 || it.code == 201
+                    }
+                }.getOrDefault(false)
+            }
+            withContext(Dispatchers.Main) {
+                busy = false
+                if (ok) {
+                    loadedFileContent = undo.content
+                    if (!newSha.isNullOrBlank()) fileSha = newSha
+                    lastUndo = null
+                    messages = messages + ChatMsg(fromUser = false, text = "تم التراجع عن آخر حفظ ✅")                    AuditLogger.log(context, "ai_edit_undo", "تراجع عن تعديل $filePath")
                     onFileCommitted()
                 } else {
                     saveError = describeHttpFailure(saveCode, "save")
@@ -495,6 +577,26 @@ fun AiEditorSection(
                             Text("تحميل", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
+                }
+            }
+        }
+        // ── سياق مهمة البناء (من قسم الطلبات) ──
+        val linkedReq = remember { AppRequestService.getActiveBuildRequest(context) }
+        if (linkedReq != null && !opMode) {
+            Surface(
+                color = GoldPrimary.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Build, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "تبني: ${linkedReq.title} — أوامرك تُغذّى بخطة الطلب تلقائياً",
+                        color = GoldPrimary, fontFamily = CairoFont, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -630,9 +732,9 @@ fun AiEditorSection(
                                 ) {
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(branch.name, color = if (branch.name == "main") GoldPrimary else Color.White, fontFamily = CairoFont, fontSize = 12.sp)
+                                        Text(branch.name, color = if (branch.name == workBranch) GoldPrimary else Color.White, fontFamily = CairoFont, fontSize = 12.sp)
                                     }
-                                    if (branch.name == "main") {
+                                    if (branch.name == workBranch) {
                                         AiPill(text = "الرئيسي", tint = Color(0xFF10B981))
                                     }
                                 }
@@ -758,15 +860,60 @@ fun AiEditorSection(
                         )
                         AiPill(text = answerSource ?: "", tint = TextSecondary)
                     }
+                    // ── الفرق قبل الحفظ: ماذا تغيّر فعلاً ──
+                    val diffData = remember(proposal, loadedFileContent) {
+                        computeDiff(loadedFileContent, proposal!!)
+                    }
+                    val diffLines = diffData.first
+                    val addedCount = diffData.second.first
+                    val removedCount = diffData.second.second
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OperatorModeTab(
+                            text = "📄 كامل",
+                            selected = !showDiff,
+                            onClick = { showDiff = false },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OperatorModeTab(
+                            text = "🔍 الفرق (+$addedCount −$removedCount)",
+                            selected = showDiff,
+                            onClick = { showDiff = true },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                     Surface(
                         color = DeepSlate, shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)
                     ) {
-                        Text(
-                            proposal!!.take(1200) + if (proposal!!.length > 1200) "\n..." else "",
-                            color = Color(0xFFCBD5E1), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            fontSize = 10.sp, modifier = Modifier.padding(10.dp).verticalScroll(rememberScrollState())
-                        )
+                        if (!showDiff) {
+                            Text(
+                                proposal!!.take(1200) + if (proposal!!.length > 1200) "\n..." else "",
+                                color = Color(0xFFCBD5E1), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontSize = 10.sp, modifier = Modifier.padding(10.dp).verticalScroll(rememberScrollState())
+                            )
+                        } else {
+                            LazyColumn(modifier = Modifier.padding(8.dp)) {
+                                items(diffLines.take(250).withIndex().toList()) { (idx, dl) ->
+                                    if (dl.kind != DiffKind.SAME || idx < 3) {
+                                        Text(
+                                            (when (dl.kind) {
+                                                DiffKind.ADDED -> "+ "
+                                                DiffKind.REMOVED -> "− "
+                                                else -> "  "
+                                            }) + dl.text.take(120),
+                                            color = when (dl.kind) {
+                                                DiffKind.ADDED -> Color(0xFF4ADE80)
+                                                DiffKind.REMOVED -> Color(0xFFF87171)
+                                                else -> Color(0xFF64748B)
+                                            },
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                            maxLines = 2
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     OutlinedTextField(
                         value = commitMsg, onValueChange = { commitMsg = it },
@@ -793,6 +940,19 @@ fun AiEditorSection(
                         Text("بناء النسخة الجديدة", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
+            }
+        }
+        // ── تراجع عن آخر حفظ ──
+        if (lastUndo != null && !busy) {
+            OutlinedButton(
+                onClick = ::undoLastCommit,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B))
+            ) {
+                Icon(Icons.Default.Undo, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("تراجع عن آخر حفظ", color = Color(0xFFF59E0B), fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
 
@@ -924,6 +1084,55 @@ private data class ChatMsg(
     val text: String,
     val thinking: Boolean = false
 )
+
+private data class UndoState(
+    val content: String,
+    val sha: String?,
+    val message: String
+)
+
+private enum class DiffKind { SAME, ADDED, REMOVED }
+
+private data class DiffLine(val kind: DiffKind, val text: String)
+
+/**
+ * فرق سطري (LCS) بين المحتوى القديم والجديد — يعرض ما تغيّر فعلاً قبل الحفظ.
+ * للملفات الضخمة (>1500 سطر) يُرجع ملخصاً بدل المصفوفة الكاملة.
+ */
+private fun computeDiff(oldText: String, newText: String): Pair<List<DiffLine>, Pair<Int, Int>> {
+    val a = oldText.lines()
+    val b = newText.lines()
+    if (a.size > 1500 || b.size > 1500) {
+        val added = b.size - a.size
+        return Pair(
+            listOf(DiffLine(DiffKind.SAME, "ملف كبير (${a.size} ← ${b.size} سطر) — الفرق التفصيلي معطّل، راجع المعاينة الكاملة.")),
+            Pair(maxOf(added, 0), maxOf(-added, 0))
+        )
+    }
+    val n = a.size
+    val m = b.size
+    val dp = Array(n + 1) { IntArray(m + 1) }
+    for (i in n - 1 downTo 0) {
+        for (j in m - 1 downTo 0) {
+            dp[i][j] = if (a[i] == b[j]) dp[i + 1][j + 1] + 1 else maxOf(dp[i + 1][j], dp[i][j + 1])
+        }
+    }
+    val out = mutableListOf<DiffLine>()
+    var i = 0
+    var j = 0
+    var added = 0
+    var removed = 0
+    while (i < n && j < m) {
+        when {
+            a[i] == b[j] -> { out.add(DiffLine(DiffKind.SAME, a[i])); i++; j++ }
+            dp[i + 1][j] >= dp[i][j + 1] -> { out.add(DiffLine(DiffKind.REMOVED, a[i])); removed++; i++ }
+            else -> { out.add(DiffLine(DiffKind.ADDED, b[j])); added++; j++ }
+        }
+    }
+    while (i < n) { out.add(DiffLine(DiffKind.REMOVED, a[i])); removed++; i++ }
+    while (j < m) { out.add(DiffLine(DiffKind.ADDED, b[j])); added++; j++ }
+    return Pair(out, Pair(added, removed))
+}
 
 private fun extractCodeFence(answer: String): String? {
     val first = answer.indexOf("```")

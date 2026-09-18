@@ -235,6 +235,19 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
             busy = false
             if (ok) {
                 AuditLogger.log(context, "build_trigger", "تشغيل بناء APK من غرفة تحكم GitHub")
+                // ربط التقدم بالطلب النشط + إشعار العميل تلقائياً (لا رجوع للخلف)
+                AppRequestService.getActiveBuildRequest(context)?.let { req ->
+                    if (req.progress < 80) {
+                        AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 80)
+                    }
+                    AppRequestService.sendMessage(
+                        context,
+                        AppRequestService.ChatMessage(
+                            requestId = req.id, senderEmail = "dev", isDeveloper = true,
+                            message = "بدأ بناء نسختك الأولى 🏗️ — ستصلك فور جاهزيتها للاختبار."
+                        )
+                    )
+                }
                 kotlinx.coroutines.delay(15000)
                 refreshAll()
             }
@@ -393,6 +406,108 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                         color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp
                     )
                 }
+                // ── مستودع جديد لطلب عميل ──
+                val linkedForRepo = remember { AppRequestService.getActiveBuildRequest(context) }
+                var newRepoName by remember(linkedForRepo?.id) {
+                    mutableStateOf(
+                        linkedForRepo?.let { GitHubRepoClient.sanitizeRepoName(it.title) } ?: ""
+                    )
+                }
+                var newRepoPrivate by remember { mutableStateOf(true) }
+                var creatingRepo by remember { mutableStateOf(false) }
+                Surface(
+                    color = GoldPrimary.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (linkedForRepo != null) "📦 مستودع جديد للطلب: ${linkedForRepo.title}"
+                            else "📦 إنشاء مستودع جديد",
+                            color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                        )
+                        OutlinedTextField(
+                            value = newRepoName, onValueChange = { newRepoName = it },
+                            label = { Text("اسم المستودع", fontSize = 11.sp) }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(
+                                checked = newRepoPrivate,
+                                onCheckedChange = { newRepoPrivate = it },
+                                colors = SwitchDefaults.colors(checkedThumbColor = GoldPrimary, checkedTrackColor = GoldSecondary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (newRepoPrivate) "خاص 🔒 (مستحسن لعمل العملاء)" else "عام 🌍",
+                                color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                if (token.isBlank()) {
+                                    Toast.makeText(context, "أدخل رمز PAT أولاً (يحتاج صلاحية repo)", Toast.LENGTH_LONG).show()
+                                    return@Button
+                                }
+                                val clean = GitHubRepoClient.sanitizeRepoName(newRepoName)
+                                if (clean.isBlank()) {
+                                    Toast.makeText(context, "أدخل اسماً صالحاً للمستودع", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                creatingRepo = true
+                                scope.launch {
+                                    val fullName = GitHubRepoClient.createUserRepo(
+                                        token.trim(), clean,
+                                        linkedForRepo?.let { "تطبيق العميل: ${it.title} — ${it.goal}" } ?: "",
+                                        newRepoPrivate
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        creatingRepo = false
+                                        if (fullName != null) {
+                                            val parts = fullName.split("/")
+                                            owner = parts[0]
+                                            repo = parts.getOrNull(1) ?: clean
+                                            saveSettings()
+                                            val msg = "أُنشئ المستودع ✅ $fullName — صار مستودع العمل الحالي"
+                                            status = msg
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            AuditLogger.log(
+                                                context, "repo_created",
+                                                "$fullName للطلب: ${linkedForRepo?.title ?: "يدوي"}"
+                                            )
+                                            linkedForRepo?.let {
+                                                context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
+                                                    .edit().putString("repo_${it.id}", fullName).apply()
+                                            }
+                                            refreshAll()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "تعذر الإنشاء — تحقق من الرمز (صلاحية repo) والاسم (غير مكرر)",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !creatingRepo && !busy,
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (creatingRepo) {
+                                CircularProgressIndicator(color = DeepSlate, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("إنشاء المستودع 📦", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                        Text(
+                            "يحتاج رمز PAT الكلاسيكي بصلاحية repo (وليس Contents فقط).",
+                            color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp
+                        )
+                    }
+                }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = ::refreshAll, enabled = !busy,
@@ -418,6 +533,324 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                         modifier = Modifier.fillMaxWidth().height(4.dp),
                         color = GoldPrimary, trackColor = Color(0xFF1E293B)
                     )
+                }
+            }
+        }
+
+        // ── الجسر: الطلب النشط قيد البناء ──
+        val activeReq = remember { mutableStateOf(AppRequestService.getActiveBuildRequest(context)) }
+        var scaffolding by remember { mutableStateOf(false) }
+        var scaffoldMsg by remember { mutableStateOf<String?>(null) }
+        activeReq.value?.let { req ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = GoldPrimary.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(14.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "🛠️ قيد البناء الآن",
+                                color = GoldPrimary, fontFamily = CairoFont,
+                                fontWeight = FontWeight.Bold, fontSize = 13.sp
+                            )
+                            Text(
+                                "${req.title} — ${req.userEmail}",
+                                color = Color.White, fontFamily = NotoSansFont, fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
+                        Button(
+                            onClick = { tab = 4 },
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("المحرر ✏️", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        TextButton(onClick = {
+                            AppRequestService.clearActiveBuildRequest(context)
+                            activeReq.value = null
+                        }) {
+                            Text("إنهاء", color = TextSecondary, fontFamily = CairoFont, fontSize = 11.sp)
+                        }
+                    }
+                    // ── 1) التسعير أولاً: لا عمل مجاني دون انتباه ──
+                    val reqPrefs = context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
+                    // السعر محسوم فقط بقبول العميل (أو مجاني معتمد) — العرض وحده لا يفتح التوليد
+                    fun isPricedNow(): Boolean {
+                        val fresh = AppRequestService.getActiveBuildRequest(context)
+                        return reqPrefs.getBoolean("priced_${req.id}", false) || fresh?.priceStatus == "accepted"
+                    }
+                    var priced by remember(req.id) { mutableStateOf(isPricedNow()) }
+                    var showPriceDialog by remember { mutableStateOf(false) }
+                    var priceDraft by remember(req.id) { mutableStateOf(if (req.cost > 0) req.cost.toString() else "") }
+                    if (!priced) {
+                        var checkTick by remember { mutableStateOf(0) }
+                        // انتظار قبول العميل: فحص كل 3 ثوانٍ حتى يقبل (لا توليد قبلها)
+                        LaunchedEffect(checkTick) {
+                            while (!isPricedNow()) {
+                                kotlinx.coroutines.delay(3000)
+                            }
+                            priced = true
+                        }
+                        Button(
+                            onClick = { showPriceDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (req.priceStatus == "rejected") "🔁 العميل رفض — اعرض سعراً جديداً"
+                                else "💰 تحديد سعر الطلب أولاً",
+                                color = Color.Black, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                            )
+                        }
+                        Text(
+                            "التوليد مقفل حتى يقبل العميل العرض من تفاصيل طلبه.",
+                            color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp
+                        )
+                    }
+                    if (showPriceDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showPriceDialog = false },
+                            title = { Text("سعر: ${req.title}", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+                            text = {
+                                Column {
+                                    OutlinedTextField(
+                                        value = priceDraft,
+                                        onValueChange = { priceDraft = it.filter { c -> c.isDigit() } },
+                                        label = { Text("السعر بالدولار (0 = مجاني)", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        val amount = priceDraft.toIntOrNull() ?: 0
+                                        val free = amount <= 0
+                                        AppRequestService.updateRequestProgressAndPayment(
+                                            context, req.id, cost = amount,
+                                            priceStatus = if (free) "accepted" else "offered"
+                                        )
+                                        if (free) {
+                                            reqPrefs.edit().putBoolean("priced_${req.id}", true).apply()
+                                        }
+                                        AuditLogger.log(context, "request_priced", "${req.title}: $$amount (${if (free) "مقبول-مجاني" else "معروض"})")
+                                        priced = free || reqPrefs.getBoolean("priced_${req.id}", false)
+                                        showPriceDialog = false
+                                        AppRequestService.sendMessage(
+                                            context,
+                                            AppRequestService.ChatMessage(
+                                                requestId = req.id,
+                                                senderEmail = "dev",
+                                                isDeveloper = true,
+                                                message = if (free) "تم قبول طلبك ✅ (مجاناً). بدأنا العمل على تطبيقك."
+                                                else "عرض سعر 📋: تكلفة تطبيقك $$amount. افتح تفاصيل الطلب للقبول أو الرفض — لن نبدأ قبل موافقتك."
+                                            )
+                                        )
+                                        activeReq.value = AppRequestService.getActiveBuildRequest(context)
+                                        Toast.makeText(
+                                            context,
+                                            if (free) "اعتُمد مجانياً ✅" else "أُرسل العرض للعميل 📋",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary)
+                                ) { Text("اعتماد", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showPriceDialog = false }) {
+                                    Text("إلغاء", color = GoldPrimary, fontFamily = CairoFont)
+                                }
+                            },
+                            containerColor = CardSurface
+                        )
+                    }
+                    // ── 2) التوليد على فرع + سحب تلقائي ──
+                    var prNumber by remember(req.id) { mutableStateOf(reqPrefs.getInt("pr_${req.id}", -1)) }
+                    Button(
+                        onClick = {
+                            val orKey = KeyVault.openrouter
+                            if (orKey.isBlank()) {
+                                Toast.makeText(context, "أدخل مفتاح OpenRouter أولاً (شاشة المحادثة أو المفاتيح)", Toast.LENGTH_LONG).show()
+                                return@Button
+                            }
+                            if (token.isBlank()) {
+                                Toast.makeText(context, "أدخل رمز PAT للحفظ في المستودع", Toast.LENGTH_LONG).show()
+                                return@Button
+                            }
+                            scaffolding = true
+                            scaffoldMsg = null
+                            scope.launch {
+                                val plan = req.generatedPrompts?.takeIf { it.isNotBlank() }
+                                    ?: LocalPromptPlanner.generatePlan(req)
+                                val files = OpenRouterService.generateStarterFiles(req, plan, orKey)
+                                var created = 0
+                                var pr: Int? = null
+                                if (files.isNotEmpty()) {
+                                    val rc = GitHubRepoClient(owner.trim(), repo.trim(), token.trim())
+                                    val baseBranch = rc.getDefaultBranch()
+                                    val branch = "dev-" + GitHubRepoClient.sanitizeRepoName(req.title).take(30)
+                                    val base = rc.getBranchSha(baseBranch)
+                                    if (base != null && rc.createBranch(branch, base)) {
+                                        for ((path, code) in files) {
+                                            if (path == ".github/workflows/android-ci.yml") continue // القالب المجرب يحل محله
+                                            if (rc.createFile(path, branch, "ملفات البداية: $path", code)) created++
+                                        }
+                                        // حقن القوالب المجرّبة (CI + Dependabot + Release Drafter) — مضمونة بدل المولدة
+                                        var templated = 0
+                                        for ((path, code) in ClientRepoTemplates.all()) {
+                                            if (rc.createFile(path, branch, "قوالب GitHub: $path", code)) templated++
+                                        }
+                                        created += templated
+                                        if (created >= 5) {
+                                            pr = rc.createPullRequest(
+                                                branch,
+                                                "هيكل البداية: ${req.title}",
+                                                "توليد تلقائي بـ OpenRouter للطلب من ${req.userEmail}. راجع الفرق ثم ادمج.",
+                                                baseBranch
+                                            )
+                                            // حماية الفرع الأساسي (أفضل جهد — تحتاج صلاحية إدارة)
+                                            val protected = rc.protectBranch(baseBranch)
+                                            AuditLogger.log(
+                                                context, "branch_protected",
+                                                "$baseBranch في ${repo.trim()}: ${if (protected) "مفعّلة" else "تعذّرت (تحتاج صلاحية إدارة)"}"
+                                            )
+                                        }
+                                    }
+                                }
+                                withContext(Dispatchers.Main) {
+                                    scaffolding = false
+                                    if (created > 0) {
+                                        if (pr != null && pr!! > 0) {
+                                            reqPrefs.edit().putInt("pr_${req.id}", pr!!).apply()
+                                            prNumber = pr!!
+                                        }
+                                        AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 30)                                        AppRequestService.sendMessage(
+                                            context,
+                                            AppRequestService.ChatMessage(
+                                                requestId = req.id, senderEmail = "dev", isDeveloper = true,
+                                                message = "كتبنا هيكل تطبيقك الأولي ✅ ($created ملفات) وهو الآن قيد المراجعة قبل الدمج."
+                                            )
+                                        )
+                                        AuditLogger.log(context, "scaffold_created", "$created ملفات + سحب #${pr ?: "?"} للطلب: ${req.title}")
+                                        scaffoldMsg = if (pr != null && pr!! > 0)
+                                            "وُلّدت $created ملفات على فرع + سحب #$pr ✅ — راجع ثم ادمج"
+                                        else
+                                            "وُلّدت $created ملفات ✅ لكنها ناقصة (أقل من 5) — لم يُفتح سحب. أعد التوليد أو أكمل يدوياً من المحرر"
+                                    } else {
+                                        scaffoldMsg = "تعذر التوليد — تحقق من مفتاح OpenRouter والرمز (صلاحية repo) والإنترنت"
+                                    }
+                                    Toast.makeText(context, scaffoldMsg, Toast.LENGTH_LONG).show()
+                                    refreshAll()
+                                }
+                            }
+                        },
+                        enabled = !scaffolding && !busy && priced,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (scaffolding) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("OpenRouter يكتب الملفات…", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        } else {
+                            Text("🚀 توليد هيكل قابل للبناء بـ OpenRouter", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    // ── 3) الدمج بعد المراجعة ──
+                    if (prNumber > 0) {
+                        var merging by remember { mutableStateOf(false) }
+                        Button(
+                            onClick = {
+                                merging = true
+                                scope.launch {
+                                    val rc = GitHubRepoClient(owner.trim(), repo.trim(), token.trim())
+                                    val ok = rc.mergePullRequest(prNumber)
+                                    withContext(Dispatchers.Main) {
+                                        merging = false
+                                        if (ok) {
+                                            AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 60)
+                                            AppRequestService.sendMessage(
+                                                context,
+                                                AppRequestService.ChatMessage(
+                                                    requestId = req.id, senderEmail = "dev", isDeveloper = true,
+                                                    message = "اعتُمد الهيكل ودُمج ✅ — ننتقل الآن لبناء نسختك الأولى."
+                                                )
+                                            )
+                                            AuditLogger.log(context, "pr_merged", "دمج سحب #$prNumber للطلب: ${req.title}")
+                                            Toast.makeText(context, "دُمج في main ✅", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "تعذر الدمج — راجعه من GitHub مباشرة", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !merging && !busy,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (merging) "جاري الدمج…" else "🔀 دمج السحب #$prNumber في main",
+                                color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                            )
+                        }
+                    }
+                    // ── 4) التسليم: آخر إصدار ← محادثة العميل + إغلاق ──
+                    var delivering by remember { mutableStateOf(false) }
+                    Button(
+                        onClick = {
+                            delivering = true
+                            scope.launch {
+                                val body = apiGet("/repos/${owner.trim()}/${repo.trim()}/releases/latest", auth = token.isNotBlank())
+                                withContext(Dispatchers.Main) {
+                                    delivering = false
+                                    val tag = body?.optString("tag_name").orEmpty()
+                                    val name = body?.optString("name").orEmpty()
+                                    if (tag.isNotBlank()) {
+                                        AppRequestService.sendMessage(
+                                            context,
+                                            AppRequestService.ChatMessage(
+                                                requestId = req.id, senderEmail = "dev", isDeveloper = true,
+                                                message = "تطبيقك جاهز للاختبار 🎉 الإصدار: ${name.ifBlank { tag }} — حمّله من صفحة الإصدارات وأخبرنا بملاحظاتك."
+                                            )
+                                        )
+                                        AppRequestService.updateRequestProgressAndPayment(
+                                            context, req.id, status = "completed", progress = 100
+                                        )
+                                        AppRequestService.clearActiveBuildRequest(context)
+                                        activeReq.value = null
+                                        AuditLogger.log(context, "request_delivered", "تسليم $tag للطلب: ${req.title}")
+                                        Toast.makeText(context, "سُلّم $tag للعميل وأُغلق الطلب ✅", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(context, "لا إصدار بعد — ابنِ أولاً ثم سلّم", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !delivering && !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (delivering) "جاري الجلب…" else "📤 تسليم آخر إصدار للعميل وإغلاق الطلب",
+                            color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                        )
+                    }
+                    scaffoldMsg?.let {
+                        Text(it, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    }
                 }
             }
         }

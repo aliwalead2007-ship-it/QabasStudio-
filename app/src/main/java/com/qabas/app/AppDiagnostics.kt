@@ -305,6 +305,7 @@ object AppDiagnostics {
             Triple("Gemini", "gemini_key", "AIzaSy"),
             Triple("Groq", "groq_key", "gsk_"),
             Triple("OpenAI", "openai_key", "sk-proj-"),
+            Triple("OpenRouter", "openrouter_key", "sk-or-"),
             Triple("Azure TTS", "azure_speech_key", ""),
             Triple("ElevenLabs", "elevenlabs_key", ""),
             Triple("HuggingFace", "huggingface_key", "hf_"),

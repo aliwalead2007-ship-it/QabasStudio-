@@ -177,8 +177,35 @@ object ApiKeyValidator {
                         )
                     }
                 }
-                "groq", "grok", "xai" -> {
-                    if (trimmedKey.startsWith("xai-", ignoreCase = true)) {
+                "openrouter" -> {
+                    if (!trimmedKey.startsWith("sk-or-", ignoreCase = true)) {
+                        return@withContext KeyValidationResult(
+                            isValid = false,
+                            summary = "صيغة المفتاح غير صحيحة 🔴",
+                            explanation = "مفتاح OpenRouter الصحيح يبدأ بالبادئة «sk-or-». المفتاح الذي أدخلته لا يطابق تلك التركيبة.",
+                            suggestedFix = "افتح openrouter.ai/keys وأنشئ مفتاحاً جديداً وانسخه كاملاً (يبدأ بـ sk-or-…) دون مسافات."
+                        )
+                    }
+                    val ok = OpenRouterService.validateKey(trimmedKey)
+                    if (ok) {
+                        SystemLogsManager.addLog("SUCCESS", "مفتاح OpenRouter متصل وسليم (200 OK)", Color(0xFF4CAF50))
+                        return@withContext KeyValidationResult(
+                            isValid = true,
+                            summary = "متصل بالسيرفر ✅ (OpenRouter شغال حقيقياً)",
+                            explanation = "تم التحقق الفعلي من صحة المفتاح واستجابة خوادم OpenRouter بنجاح.",
+                            suggestedFix = "المفتاح جاهز — خطط الطلبات ستُستخدم النماذج المجانية."
+                        )
+                    } else {
+                        SystemLogsManager.addLog("ERROR", "فشل التحقق من مفتاح OpenRouter", Color(0xFFEF4444))
+                        return@withContext KeyValidationResult(
+                            isValid = false,
+                            summary = "غير متصل 🔴",
+                            explanation = "رفض خادم OpenRouter المفتاح أو تعذر الوصول إليه.",
+                            suggestedFix = "تحقق من نسخ المفتاح كاملاً ومن اتصال الإنترنت، أو أنشئ مفتاحاً جديداً."
+                        )
+                    }
+                }
+                "groq", "grok", "xai" -> {                    if (trimmedKey.startsWith("xai-", ignoreCase = true)) {
                         val url = "https://api.x.ai/v1/models"
                         val request = Request.Builder()
                             .url(url)

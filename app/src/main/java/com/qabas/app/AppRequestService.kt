@@ -21,7 +21,8 @@ object AppRequestService {
         val timestamp: Long = System.currentTimeMillis(),
         val cost: Int = 0,
         val isPaid: Boolean = false,
-        val progress: Int = 0 // 0 to 100
+        val progress: Int = 0, // 0 to 100
+        val priceStatus: String = "none" // none, offered, accepted, rejected
     )
 
     data class ChatMessage(
@@ -118,7 +119,7 @@ object AppRequestService {
         return@withContext AppServices.generateDeveloperPrompts(request)
     }
 
-    fun updateRequestProgressAndPayment(context: Context, requestId: String, progress: Int? = null, isPaid: Boolean? = null, cost: Int? = null, status: String? = null) {
+    fun updateRequestProgressAndPayment(context: Context, requestId: String, progress: Int? = null, isPaid: Boolean? = null, cost: Int? = null, status: String? = null, priceStatus: String? = null) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val current = getRequests(context, isDeveloper = true).toMutableList()
         val index = current.indexOfFirst { it.id == requestId }
@@ -128,12 +129,32 @@ object AppRequestService {
                 progress = progress ?: req.progress,
                 isPaid = isPaid ?: req.isPaid,
                 cost = cost ?: req.cost,
-                status = status ?: req.status
+                status = status ?: req.status,
+                priceStatus = priceStatus ?: req.priceStatus
             )
             val type = Types.newParameterizedType(List::class.java, AppRequest::class.java)
             val adapter = moshi.adapter<List<AppRequest>>(type)
             prefs.edit().putString("requests", adapter.toJson(current)).apply()
         }
+    }
+
+    /** جسر الطلب ← مركز البناء: الطلب النشط قيد التنفيذ حالياً. */
+    private const val ACTIVE_BUILD_REQUEST = "active_build_request_id"
+
+    fun setActiveBuildRequest(context: Context, requestId: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(ACTIVE_BUILD_REQUEST, requestId).apply()
+    }
+
+    fun getActiveBuildRequest(context: Context): AppRequest? {
+        val id = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(ACTIVE_BUILD_REQUEST, null) ?: return null
+        return getRequests(context, isDeveloper = true).find { it.id == id }
+    }
+
+    fun clearActiveBuildRequest(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(ACTIVE_BUILD_REQUEST).apply()
     }
 
     fun updateRequestPrompts(context: Context, requestId: String, prompts: String) {

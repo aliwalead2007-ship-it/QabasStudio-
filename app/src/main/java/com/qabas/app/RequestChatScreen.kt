@@ -125,6 +125,62 @@ fun RequestChatScreen(requestId: String, onBack: () -> Unit) {
             if (isAdmin && currentReq != null) {
                 val promptsText = currentReq.generatedPrompts
                 if (promptsText.isNullOrBlank()) {
+                    // حقل مفتاح OpenRouter المجاني داخل الشاشة — بلا مغادرة
+                    val hasGemini = KeyVault.gemini.isNotBlank()
+                    val savedOrKey = remember { mutableStateOf(prefs.getString("openrouter_key", "") ?: "") }
+                    if (!hasGemini && savedOrKey.value.isBlank()) {
+                        var draft by remember { mutableStateOf("") }
+                        var saved by remember { mutableStateOf(false) }
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = CardSurface),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.4f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    "🔑 مفتاح OpenRouter المجاني (نماذج :free حقيقية) — أو تُستخدم الخطة المحلية تلقائياً",
+                                    color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedTextField(
+                                        value = draft,
+                                        onValueChange = { draft = it; saved = false },
+                                        placeholder = { Text("sk-or-…", fontSize = 12.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = GoldPrimary,
+                                            unfocusedBorderColor = Color(0xFF1E293B),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            val v = draft.trim()
+                                            if (v.startsWith("sk-or-")) {
+                                                prefs.edit().putString("openrouter_key", v).apply()
+                                                savedOrKey.value = v
+                                                saved = true
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(if (saved) "تم ✓" else "حفظ", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                                Text(
+                                    "أنشئه مجاناً من openrouter.ai/keys — اتركه فارغاً وستعمل الخطة المحلية.",
+                                    color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
                     Button(
                         onClick = {
                             scope.launch {
@@ -153,6 +209,32 @@ fun RequestChatScreen(requestId: String, onBack: () -> Unit) {
                             Text(Translator.tr("خطة البرمجة المقترحة:"), color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(promptsText, color = Color.White, fontFamily = NotoSansFont, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        cm.setPrimaryClip(android.content.ClipData.newPlainText("خطة", promptsText))
+                                        Toast.makeText(context, "نُسخت الخطة 📋", Toast.LENGTH_SHORT).show()
+                                    },
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text("📋 نسخ", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                Button(
+                                    onClick = {
+                                        AppRequestService.updateRequestProgressAndPayment(context, requestId, status = "in_progress")
+                                        AppRequestService.setActiveBuildRequest(context, requestId)
+                                        request.value = AppRequestService.getRequests(context, isDeveloper = true).find { it.id == requestId }
+                                        Toast.makeText(context, "🛠️ رُبط بمركز البناء — ارجع للوحة ← مركز البناء", Toast.LENGTH_LONG).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text("🛠️ ابدأ البناء", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }

@@ -89,6 +89,7 @@ private val KEY_PATTERNS: Map<String, Regex> = mapOf(
     "huggingface" to Regex("""hf_[A-Za-z0-9]{10,}"""),
     "elevenlabs" to Regex("""xi-[A-Za-z0-9_\-]{10,}"""),
     "openai" to Regex("""sk-[A-Za-z0-9_\-]{20,}"""),
+    "openrouter" to Regex("""sk-or-v1-[A-Za-z0-9_\-]{10,}"""),
     "azure" to Regex("""(?i)[a-f0-9]{32}"""),
     "pexels" to Regex("""(?<![A-Za-z0-9_-])[A-Za-z0-9]{56}(?![A-Za-z0-9_-])"""),
     "pixabay" to Regex("""\d{7,10}-[a-f0-9]{16,32}""")
@@ -123,6 +124,7 @@ object ApiKeysBackupManager {
             "gemini_key",
             "groq_key",
             "openai_key",
+            "openrouter_key",
             "pexels_key",
             "pixabay_key",
             "huggingface_key",
@@ -203,6 +205,9 @@ object ApiKeysBackupManager {
                     "firebase" to "firebase_key",
                     "firebase_key" to "firebase_key",
                     "firebasekey" to "firebase_key",
+                    "openrouter" to "openrouter_key",
+                    "openrouter_key" to "openrouter_key",
+                    "openrouterkey" to "openrouter_key",
                     "firebase_project_id" to "firebase_project_id",
                     "firebase_app_id" to "firebase_app_id"
                 )
@@ -236,6 +241,7 @@ object ApiKeysBackupManager {
                     val valStr = parts[1].trim().removeSurrounding("\"", "'").removeSuffix(";").removeSuffix(",")
                     if (valStr.isNotBlank()) {
                         when {
+                            keyName.contains("openrouter") || valStr.startsWith("sk-or-") -> importedMap["openrouter_key"] = valStr
                             keyName.contains("gemini") -> importedMap["gemini_key"] = valStr
                             keyName.contains("groq") -> importedMap["groq_key"] = valStr
                             keyName.contains("azure_region") || keyName.endsWith("_region") || (keyName.contains("region") && !keyName.contains("speech")) -> importedMap["azure_speech_region"] = valStr
@@ -259,6 +265,10 @@ object ApiKeysBackupManager {
             val groqMatch = Regex("""gsk_[A-Za-z0-9]{40,}""").find(rawContent)?.value
             if (groqMatch != null && !importedMap.containsKey("groq_key")) {
                 importedMap["groq_key"] = groqMatch
+            }
+            val orMatch = Regex("""sk-or-v1-[A-Za-z0-9]{20,}""").find(rawContent)?.value
+            if (orMatch != null && !importedMap.containsKey("openrouter_key")) {
+                importedMap["openrouter_key"] = orMatch
             }
             val hfMatch = Regex("""hf_[A-Za-z0-9]{34,36}""").find(rawContent)?.value
             if (hfMatch != null && !importedMap.containsKey("huggingface_key")) {
@@ -303,6 +313,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
     var elevenLabsKey by remember { mutableStateOf(prefs.getString("elevenlabs_key", "") ?: "") }
     var firebaseKey by remember { mutableStateOf(prefs.getString("firebase_key", "") ?: "") }
     var openaiKey by remember { mutableStateOf(prefs.getString("openai_key", "") ?: "") }
+    var openrouterKey by remember { mutableStateOf(prefs.getString("openrouter_key", "") ?: "") }
     
     var saveMessage by remember { mutableStateOf("") }
     var isSavingAndValidating by remember { mutableStateOf(false) }
@@ -325,6 +336,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 "gemini" -> { geminiKey = key; saved.add("Gemini") }
                 "groq" -> { groqKey = key; saved.add("Groq") }
                 "openai" -> { openaiKey = key; saved.add("OpenAI") }
+                "openrouter" -> { openrouterKey = key; saved.add("OpenRouter") }
                 "huggingface" -> { huggingfaceKey = key; saved.add("HuggingFace") }
                 "azure" -> { azureSpeechKey = key; saved.add("Azure TTS") }
                 "elevenlabs" -> { elevenLabsKey = key; saved.add("ElevenLabs") }
@@ -338,6 +350,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                 detected["gemini"]?.let { putString("gemini_key", it) }
                 detected["groq"]?.let { putString("groq_key", it) }
                 detected["openai"]?.let { putString("openai_key", it) }
+                detected["openrouter"]?.let { putString("openrouter_key", it) }
                 detected["huggingface"]?.let { putString("huggingface_key", it) }
                 detected["azure"]?.let { putString("azure_speech_key", it) }
                 detected["elevenlabs"]?.let { putString("elevenlabs_key", it) }
@@ -394,9 +407,10 @@ fun ApiKeysScreen(onBack: () -> Unit) {
         imported["elevenlabs_key"]?.let { elevenLabsKey = it }
         imported["firebase_key"]?.let { firebaseKey = it }
         imported["openai_key"]?.let { openaiKey = it }
+        imported["openrouter_key"]?.let { openrouterKey = it }
     }
 
-    val currentKeysMap = remember(geminiKey, groqKey, pexelsKey, pixabayKey, huggingfaceKey, firebaseKey, openaiKey) {
+    val currentKeysMap = remember(geminiKey, groqKey, pexelsKey, pixabayKey, huggingfaceKey, firebaseKey, openaiKey, openrouterKey) {
         mapOf(
             "gemini_key" to geminiKey,
             "groq_key" to groqKey,
@@ -404,7 +418,8 @@ fun ApiKeysScreen(onBack: () -> Unit) {
             "pixabay_key" to pixabayKey,
             "huggingface_key" to huggingfaceKey,
             "firebase_key" to firebaseKey,
-            "openai_key" to openaiKey
+            "openai_key" to openaiKey,
+            "openrouter_key" to openrouterKey
         )
     }
 
@@ -1023,6 +1038,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                                         if (geminiKey.isNotBlank()) activeKeys["gemini_key"] = geminiKey
                                         if (groqKey.isNotBlank()) activeKeys["groq_key"] = groqKey
                                         if (openaiKey.isNotBlank()) activeKeys["openai_key"] = openaiKey
+                                        if (openrouterKey.isNotBlank()) activeKeys["openrouter_key"] = openrouterKey
                                         if (huggingfaceKey.isNotBlank()) activeKeys["huggingface_key"] = huggingfaceKey
                                         if (azureSpeechKey.isNotBlank()) activeKeys["azure_speech_key"] = azureSpeechKey
                                         if (azureSpeechRegion.isNotBlank()) activeKeys["azure_speech_region"] = azureSpeechRegion
@@ -1103,6 +1119,19 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                         icon = Icons.Default.AutoAwesome,
                         value = openaiKey,
                         onValueChange = { openaiKey = it }
+                    )
+                }
+
+                item {
+                    ApiKeyCard(
+                        serviceType = "openrouter",
+                        title = "2.6 OpenRouter (نماذج مجانية 🆓)",
+                        description = "بوابة نماذج مجانية حقيقية (Llama/Gemma/Qwen بصيغة :free) لتوليد خطط برمجة الطلبات — البديل المجاني الأول عند غياب Gemini.",
+                        url = "https://openrouter.ai/keys",
+                        instructions = "1. أنشئ حساباً مجانياً في openrouter.ai/keys.\n2. اضغط «Create API Key» وانسخ المفتاح (يبدأ بـ sk-or-…).\n3. الصقه هنا واحفظ — النماذج المجانية لا تكلف شيئاً.",
+                        icon = Icons.Default.AllInclusive,
+                        value = openrouterKey,
+                        onValueChange = { openrouterKey = it }
                     )
                 }
 
@@ -1233,6 +1262,7 @@ fun ApiKeysScreen(onBack: () -> Unit) {
                                 .putString("azure_speech_region", azureSpeechRegion.trim())
                                 .putString("elevenlabs_key", elevenLabsKey.trim())
                                 .putString("openai_key", openaiKey.trim())
+                                .putString("openrouter_key", openrouterKey.trim())
                                 .putString("firebase_key", firebaseKey.trim())
                                 .apply()
                             saveMessage = Translator.tr("تم حفظ وتحديث جميع المفاتيح بنجاح! ✨")

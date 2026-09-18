@@ -40,7 +40,7 @@ object KeySyncService {
     )
 
     private val KEY_FIELDS = listOf(
-        "gemini_key", "groq_key", "openai_key", "huggingface_key",
+        "gemini_key", "groq_key", "openai_key", "openrouter_key", "huggingface_key",
         "azure_speech_key", "azure_speech_region", "elevenlabs_key",
         "pexels_key", "pixabay_key"
     )

@@ -188,6 +188,60 @@ class GitHubRepoClient(
         return post("/repos/$owner/$repo/git/refs", body)
     }
 
+    /** فرع السحب الأساسي (قد يكون main أو master حسب حساب المستخدم). */
+    suspend fun createPullRequest(head: String, title: String, bodyText: String, base: String = "main"): Int? =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = JSONObject()
+                    .put("title", title)
+                    .put("head", head)
+                    .put("base", base)
+                    .put("body", bodyText)
+                    .toString()
+                    .toRequestBody("application/json".toMediaType())
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .build()
+                val req = Request.Builder()
+                    .url("https://api.github.com/repos/$owner/$repo/pulls")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "Qabas-Studio")
+                    .header("Authorization", "Bearer $token")
+                    .post(body)
+                    .build()
+                client.newCall(req).execute().use {
+                    if (it.code != 201) return@withContext null
+                    JSONObject(it.body?.string().orEmpty()).optInt("number", -1)
+                        .takeIf { n -> n > 0 }
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    /** يدمج سحباً برقمه في main — يُستخدم بعد مراجعة الفرق. */
+    suspend fun mergePullRequest(number: Int): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val body = JSONObject().put("merge_method", "squash").toString()
+                .toRequestBody("application/json".toMediaType())
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val req = Request.Builder()
+                .url("https://api.github.com/repos/$owner/$repo/pulls/$number/merge")
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "Qabas-Studio")
+                .header("Authorization", "Bearer $token")
+                .put(body)
+                .build()
+            client.newCall(req).execute().use { it.code == 200 }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun getFileContent(path: String, branch: String = "main"): RepoContentResponse? {
         val url = "/repos/$owner/$repo/contents/${encodePath(path)}?ref=$branch"
         return get(url) { raw ->
@@ -216,13 +270,98 @@ class GitHubRepoClient(
         val url = "/repos/$owner/$repo/contents/${encodePath(path)}?message=$enc&sha=${URLEncoder.encode(sha, "UTF-8")}&branch=${URLEncoder.encode(branch, "UTF-8")}"
         return delete(url)
     }
-
     suspend fun getBranchSha(branch: String = "main"): String? {
         val path = "/repos/$owner/$repo/git/refs/heads/${encodePath(branch)}"
         return get(path) { raw ->
             val obj = JSONObject(raw)
             val o = obj.optJSONObject("object")
             o?.optString("sha")
+        }
+    }
+
+    /** حماية الفرع الأساسي: الدمج عبر السحب فقط + مراجعة واحدة. يحتاج صلاحية إدارة. */
+    suspend fun protectBranch(branch: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val body = JSONObject()
+                .put("required_status_checks", JSONObject.NULL)
+                .put("enforce_admins", false)
+                .put("required_pull_request_reviews", JSONObject().put("required_approving_review_count", 1))
+                .put("restrictions", JSONObject.NULL)
+                .toString()
+                .toRequestBody("application/json".toMediaType())
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val req = Request.Builder()
+                .url("https://api.github.com/repos/$owner/$repo/branches/${URLEncoder.encode(branch, "UTF-8")}/protection")
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "Qabas-Studio")
+                .header("Authorization", "Bearer $token")
+                .put(body)
+                .build()
+            client.newCall(req).execute().use { it.code == 200 }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** الفرع الافتراضي الحقيقي للمستودع (main أو master) — لا تفترض main أبداً. */
+    suspend fun getDefaultBranch(): String {
+        val path = "/repos/$owner/$repo"
+        return get(path) { raw ->
+            JSONObject(raw).optString("default_branch", "main").takeIf { it.isNotBlank() } ?: "main"
+        } ?: "main"
+    }
+
+    companion object {
+        /** ينشئ مستودعاً جديداً في حساب صاحب الرمز — يُعيد الاسم الكامل أو null. */
+        suspend fun createUserRepo(
+            token: String,
+            name: String,
+            description: String = "",
+            private: Boolean = true
+        ): String? = withContext(Dispatchers.IO) {
+            try {
+                val clean = name.trim()
+                if (clean.isBlank() || token.isBlank()) return@withContext null
+                val body = JSONObject()
+                    .put("name", clean)
+                    .put("description", description)
+                    .put("private", private)
+                    .put("auto_init", true)
+                    .toString()
+                    .toRequestBody("application/json".toMediaType())
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .build()
+                val req = Request.Builder()
+                    .url("https://api.github.com/user/repos")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "Qabas-Studio")
+                    .header("Authorization", "Bearer $token")
+                    .post(body)
+                    .build()
+                client.newCall(req).execute().use {
+                    if (it.code != 201) return@withContext null
+                    JSONObject(it.body?.string().orEmpty()).optString("full_name")
+                        .takeIf { n -> n.contains("/") }
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        /** اسم مستودع صالح من عنوان طلب عربي: حروف/أرقام/شرطات فقط. */
+        fun sanitizeRepoName(title: String): String {
+            var s = title.trim().lowercase()
+                .replace(Regex("[\\s_]+"), "-")
+                .replace(Regex("[^a-z0-9\\-\\u0600-\\u06FF]"), "")
+                .replace(Regex("-+"), "-")
+                .trim('-')
+            if (s.isBlank()) s = "client-app"
+            return s.take(50)
         }
     }
 }

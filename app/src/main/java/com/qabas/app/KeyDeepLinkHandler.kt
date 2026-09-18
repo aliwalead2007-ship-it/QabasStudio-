@@ -48,6 +48,7 @@ object KeyDeepLinkHandler {
             "gemini" to "gemini_key",
             "groq" to "groq_key",
             "openai" to "openai_key",
+            "openrouter" to "openrouter_key",
             "huggingface" to "huggingface_key",
             "hf" to "huggingface_key",
             "azure" to "azure_speech_key",
@@ -96,6 +97,7 @@ object KeyDeepLinkHandler {
                 "gemini_key" -> "Gemini"
                 "groq_key" -> "Groq"
                 "openai_key" -> "OpenAI"
+                "openrouter_key" -> "OpenRouter"
                 "huggingface_key" -> "HuggingFace"
                 "azure_speech_key" -> "Azure TTS"
                 "azure_speech_region" -> "Azure Region"
@@ -116,6 +118,7 @@ object KeyDeepLinkHandler {
             "gemini_key" to "gemini",
             "groq_key" to "groq",
             "openai_key" to "openai",
+            "openrouter_key" to "openrouter",
             "huggingface_key" to "hf",
             "azure_speech_key" to "azure",
             "azure_speech_region" to "azure_region",
