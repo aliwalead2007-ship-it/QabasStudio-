@@ -92,6 +92,8 @@ jobs:
           } > .env
 
       - name: Assemble Debug APK
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           ./gradlew assembleDebug \
             --stacktrace \
@@ -117,9 +119,9 @@ jobs:
           set -e
           NEW_APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | sed 's/.*= \([0-9]*\).*/\1/')
+          VERSION_CODE="${{ github.run_number }}"
           APK_SIZE=$(du -h "$NEW_APK" | cut -f1)
-          TAG="v${VERSION}"
+          TAG="v${VERSION}+${{ github.run_number }}"
 
           echo "APK: $NEW_APK ($APK_SIZE) | Version: $VERSION ($VERSION_CODE) | Tag: $TAG"
 
@@ -168,6 +170,7 @@ jobs:
           fi
 
           # ── ارفع كـ GitHub Release ──
+          COMMITS_SINCE_TAG=$(git log "${LAST_RELEASE:-$(git rev-list --max-parents=0 HEAD | head -1)}..HEAD" --pretty=format"- %s" 2>/dev/null | head -20 || true)
           RELEASE_NOTES="Qabas $VERSION ($VERSION_CODE) | APK: $APK_SIZE"
 
           if [ "$IS_DELTA" = "true" ]; then
@@ -176,6 +179,12 @@ jobs:
           fi
 
           RELEASE_NOTES="$RELEASE_NOTES | Download .delta for small update, or full APK"
+
+          if [ -n "$COMMITS_SINCE_TAG" ]; then
+            RELEASE_NOTES="$RELEASE_NOTES
+التغييرات:
+$COMMITS_SINCE_TAG"
+          fi
 
           # احذف Release cũ بنفس الـ tag لو موجود
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
