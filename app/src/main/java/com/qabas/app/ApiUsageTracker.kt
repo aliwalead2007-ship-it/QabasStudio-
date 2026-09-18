@@ -111,6 +111,8 @@ object ApiUsageTracker {
         )
         _stats = _stats + (apiName to updated)
         persist(context)
+        // فتات خبز: تُرفق تلقائياً بأي انهيار لاحق
+        CrashBreadcrumbs.api(apiName, latencyMs, success)
     }
 
     /**

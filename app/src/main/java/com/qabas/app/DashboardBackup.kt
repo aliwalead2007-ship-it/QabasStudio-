@@ -37,6 +37,7 @@ private data class BackupRestoreCounts(
  * قسم النسخ الاحتياطي والاسترجاع (DashboardBackup):
  * - تصدير JSON للمستخدمين + الأكواد + الإعدادات.
  * - استيراد JSON واستعادة الإعدادات + الأكواد + المستخدمين مع معاينة وتأكيد.
+ * - نسخ تلقائي يومي صامت إلى مجلد التطبيق الخاص (AutoBackup).
  */
 @Composable
 fun DashboardBackupSection() {
@@ -127,6 +128,9 @@ fun DashboardBackupSection() {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("نسخ احتياطي ومسح", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
 
+        // ---- النسخ التلقائي اليومي ----
+        AutoBackupCard(context = context)
+
         // ---- بطاقة التصدير ----
         Card(
             colors = CardDefaults.cardColors(containerColor = CardSurface),
@@ -186,6 +190,172 @@ fun DashboardBackupSection() {
 // ─── منطق الاسترجاع ───────────────────────────────────────────────
 
 private data class RestoreResult(
+    val configRestored: Boolean = false,
+    val promoRestored: Int = 0,
+    val giftRestored: Int = 0,
+    val usersRestored: Int = 0
+)
+
+@Composable
+private fun AutoBackupCard(context: Context) {
+    var enabled by remember { mutableStateOf(AutoBackup.isEnabled(context)) }
+    var lastBackup by remember { mutableStateOf(AutoBackup.lastBackupTime(context)) }
+    val scope = rememberCoroutineScope()
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("النسخ التلقائي اليومي", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (lastBackup > 0) {
+                            "آخر نسخة: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(lastBackup))}"
+                        } else "لم تُؤخذ أي نسخة تلقائية بعد",
+                        color = TextSecondary, fontFamily = NotoSansFont, fontSize = 12.sp
+                    )
+                    Text(
+                        "تُحفظ في مجلد التطبيق الخاص (آخر 7 نسخ) — بلا تدخل منك.",
+                        color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        AutoBackup.setEnabled(context, it)
+                        lastBackup = AutoBackup.lastBackupTime(context)
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF8B5CF6))
+                )
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val ok = AutoBackup.runNow(context)
+                        lastBackup = AutoBackup.lastBackupTime(context)
+                        Toast.makeText(
+                            context,
+                            if (ok) "أُخذت نسخة تلقائية الآن ✅" else "فشل النسخ التلقائي",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("نسخ الآن", color = Color(0xFF8B5CF6), fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ─── النسخ التلقائي اليومي ─────────────────────────────────────────
+
+object AutoBackup {
+    private const val PREFS = "qabas_prefs"
+    private const val KEY_ENABLED = "auto_backup_enabled"
+    private const val KEY_LAST = "auto_backup_last_ms"
+    private const val MAX_KEEP = 7
+    private const val REQUEST_CODE = 2002
+
+    fun isEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    fun lastBackupTime(context: Context): Long =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST, 0L)
+
+    fun setEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
+        if (enabled) {
+            scheduleDaily(context)
+            AuditLogger.log(context, "auto_backup_enabled", "تفعيل النسخ التلقائي اليومي")
+        } else {
+            cancelDaily(context)
+            AuditLogger.log(context, "auto_backup_disabled", "إيقاف النسخ التلقائي اليومي")
+        }
+    }
+
+    private fun scheduleDaily(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+            val intent = android.content.Intent(context, AutoBackupReceiver::class.java)
+            val pi = android.app.PendingIntent.getBroadcast(
+                context, REQUEST_CODE, intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+            val cal = java.util.Calendar.getInstance().apply {
+                timeInMillis = System.currentTimeMillis()
+                set(java.util.Calendar.HOUR_OF_DAY, 3) // 3:00 فجراً
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            alarmManager.setInexactRepeating(
+                android.app.AlarmManager.RTC_WAKEUP, cal.timeInMillis,
+                android.app.AlarmManager.INTERVAL_DAY, pi
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("AutoBackup", "schedule failed: ${e.message}")
+        }
+    }
+
+    private fun cancelDaily(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+            val intent = android.content.Intent(context, AutoBackupReceiver::class.java)
+            val pi = android.app.PendingIntent.getBroadcast(
+                context, REQUEST_CODE, intent,
+                android.app.PendingIntent.FLAG_NO_CREATE or
+                    (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+            if (pi != null) alarmManager.cancel(pi)
+        } catch (e: Exception) {
+            android.util.Log.w("AutoBackup", "cancel failed: ${e.message}")
+        }
+    }
+
+    /** تنفيذ نسخة صامتة الآن (من الزر أو من المنبه). */
+    suspend fun runNow(context: Context): Boolean {
+        return try {
+            val json = buildExportJson(context)
+            val dir = java.io.File(context.filesDir, "backups").apply { mkdirs() }
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            java.io.File(dir, "auto_$stamp.json").writeText(json)
+            // الاحتفاظ بآخر 7 فقط
+            dir.listFiles { f -> f.name.startsWith("auto_") }
+                ?.sortedBy { it.name }?.dropLast(MAX_KEEP)
+                ?.forEach { runCatching { it.delete() } }
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putLong(KEY_LAST, System.currentTimeMillis()).apply()
+            AuditLogger.log(context, "auto_backup_run", "نسخة تلقائية صامتة")
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("AutoBackup", "runNow failed: ${e.message}", e)
+            false
+        }
+    }
+}
+
+/** مستقبل منبه النسخ التلقائي — يعمل حتى لو التطبيق مغلق. */
+class AutoBackupReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: android.content.Intent) {
+        if (!AutoBackup.isEnabled(context)) return
+        val pending = goAsync()
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                AutoBackup.runNow(context)
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+}
     val configRestored: Boolean = false,
     val promoRestored: Int = 0,
     val giftRestored: Int = 0,

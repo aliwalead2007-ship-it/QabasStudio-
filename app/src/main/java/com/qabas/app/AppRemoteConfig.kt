@@ -129,4 +129,179 @@ object AppRemoteConfig {
             }
         }
     }
+
+    // ──────────────── القواعد المشروطة + تجارب A/B ────────────────
+
+    const val OVERRIDES_COLLECTION = "app_config_overrides"
+
+    /**
+     * قاعدة تجاوز مشروطة: تغيّر قيمة مفتاح لشريحة فقط
+     * (إصدار/نوع مستخدم/نسبة طرح تدريجي) — أساس تجارب A/B.
+     */
+    data class OverrideRule(
+        val id: String = "",
+        val key: String = KEY_MAINTENANCE,
+        /** القيمة كنص: "true"/"false" للمنطقي، رقم، أو نص الرسالة */
+        val value: String = "true",
+        val userType: String = "all", // all/developers/premium/free
+        val minVersion: Int = 0,
+        val maxVersion: Int = Int.MAX_VALUE,
+        /** نسبة الطرح 0-100 (100 = الجميع). التوزيع ثابت لكل جهاز. */
+        val percent: Int = 100,
+        val enabled: Boolean = true,
+        val priority: Int = 0
+    )
+
+    @Volatile
+    private var cachedOverrides: List<OverrideRule>? = null
+
+    /** معرّف ثابت للجهاز لتوزيع نسب A/B بثبات. */
+    fun stableBucket(context: Context): Int {
+        val prefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+        var id = prefs.getString("device_stable_id", null)
+        if (id.isNullOrBlank()) {
+            id = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("device_stable_id", id).apply()
+        }
+        return (kotlin.math.abs(id.hashCode()) % 100)
+    }
+
+    private fun deviceUserType(context: Context): String {
+        val prefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+        return when {
+            prefs.getBoolean("is_developer", false) -> "developers"
+            prefs.getBoolean("is_premium", false) -> "premium"
+            else -> "free"
+        }
+    }
+
+    private fun ruleMatches(context: Context, rule: OverrideRule, versionCode: Int): Boolean {
+        if (!rule.enabled) return false
+        if (versionCode < rule.minVersion || versionCode > rule.maxVersion) return false
+        val myType = deviceUserType(context)
+        if (rule.userType != "all" && rule.userType != myType) {
+            // المطور والمميز يريان قواعد الشريحة العامة + شريحتهما فقط
+            if (!(rule.userType == "free" && (myType == "premium" || myType == "developers"))) {
+                // قاعدة premium تشمل developers أيضاً
+                if (!(rule.userType == "premium" && myType == "developers")) return false
+            }
+        }
+        if (rule.percent >= 100) return true
+        if (rule.percent <= 0) return false
+        return stableBucket(context) < rule.percent
+    }
+
+    private fun currentVersionCode(context: Context): Int {
+        return runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
+        }.getOrDefault(0)
+    }
+
+    /** جلب القواعد من السحابة (مع كاش ذاكرة). */
+    suspend fun fetchOverrides(context: Context): List<OverrideRule> {
+        cachedOverrides?.let { return it }
+        if (!CloudServices.isFirebaseInitialized) return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                val snap = db().collection(OVERRIDES_COLLECTION).get().await()
+                val list = snap.documents.mapNotNull { doc ->
+                    val d = doc.data ?: return@mapNotNull null
+                    OverrideRule(
+                        id = doc.id,
+                        key = d["key"] as? String ?: return@mapNotNull null,
+                        value = d["value"] as? String ?: "true",
+                        userType = d["userType"] as? String ?: "all",
+                        minVersion = (d["minVersion"] as? Long)?.toInt() ?: 0,
+                        maxVersion = (d["maxVersion"] as? Long)?.toInt() ?: Int.MAX_VALUE,
+                        percent = (d["percent"] as? Long)?.toInt() ?: 100,
+                        enabled = d["enabled"] as? Boolean ?: true,
+                        priority = (d["priority"] as? Long)?.toInt() ?: 0
+                    )
+                }.sortedByDescending { it.priority }
+                cachedOverrides = list
+                list
+            } catch (e: Exception) {
+                Log.w(TAG, "fetchOverrides failed: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+
+    fun invalidateOverrides() {
+        cachedOverrides = null
+    }
+
+    private suspend fun matchingRule(context: Context, key: String): OverrideRule? {
+        val version = currentVersionCode(context)
+        return fetchOverrides(context).firstOrNull { it.key == key && ruleMatches(context, it, version) }
+    }
+
+    /** قراءة فعالة: القاعدة المشروطة أولاً، ثم القيمة العامة. */
+    suspend fun effectiveBoolean(context: Context, key: String, default: Boolean): Boolean {
+        val rule = matchingRule(context, key) ?: return current(context).let {
+            when (key) {
+                KEY_MAINTENANCE -> it.maintenanceMode
+                KEY_ACCEPT_REQUESTS -> it.acceptRequests
+                KEY_AUTO_AI_REPLY -> it.autoAiReply
+                else -> default
+            }
+        }
+        return rule.value.equals("true", ignoreCase = true)
+    }
+
+    suspend fun effectiveString(context: Context, key: String, default: String): String {
+        val rule = matchingRule(context, key) ?: return when (key) {
+            KEY_MAINTENANCE_MESSAGE -> current(context).maintenanceMessage
+            else -> default
+        }
+        return rule.value
+    }
+
+    /** إضافة/تحديث قاعدة من لوحة المطور. */
+    suspend fun saveOverride(context: Context, rule: OverrideRule): Boolean {
+        if (!CloudServices.isFirebaseInitialized) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val doc = hashMapOf<String, Any>(
+                    "key" to rule.key,
+                    "value" to rule.value,
+                    "userType" to rule.userType,
+                    "minVersion" to rule.minVersion,
+                    "maxVersion" to if (rule.maxVersion == Int.MAX_VALUE) Long.MAX_VALUE else rule.maxVersion.toLong(),
+                    "percent" to rule.percent.toLong(),
+                    "enabled" to rule.enabled,
+                    "priority" to rule.priority.toLong(),
+                    "updatedBy" to AdminGuard.currentIdentity(context),
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                if (rule.id.isBlank()) {
+                    db().collection(OVERRIDES_COLLECTION).add(doc).await()
+                } else {
+                    db().collection(OVERRIDES_COLLECTION).document(rule.id)
+                        .set(doc, com.google.firebase.firestore.SetOptions.merge()).await()
+                }
+                invalidateOverrides()
+                AuditLogger.log(context, "config_override_save", "${rule.key}=${rule.value} (${rule.userType} ${rule.percent}٪)")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "saveOverride failed: ${e.message}", e)
+                false
+            }
+        }
+    }
+
+    /** حذف قاعدة. */
+    suspend fun deleteOverride(ruleId: String): Boolean {
+        if (!CloudServices.isFirebaseInitialized) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                db().collection(OVERRIDES_COLLECTION).document(ruleId).delete().await()
+                invalidateOverrides()
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "deleteOverride failed: ${e.message}", e)
+                false
+            }
+        }
+    }
 }

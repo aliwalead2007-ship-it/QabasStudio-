@@ -5,6 +5,7 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.firebase.crashlytics)
   alias(libs.plugins.kotlin.serialization)
 }
 
@@ -17,7 +18,9 @@ android {
     applicationId = "com.qabas.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 3
+    // versionCode تلقائي من رقم تشغيل CI (يتصاعد دائماً بلا حلقة commit).
+    // محلياً: القيمة الاحتياطية 3.
+    versionCode = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 3
     versionName = "1.2.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -151,6 +154,7 @@ dependencies {
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)
   implementation(libs.firebase.analytics)
+  implementation(libs.firebase.crashlytics)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

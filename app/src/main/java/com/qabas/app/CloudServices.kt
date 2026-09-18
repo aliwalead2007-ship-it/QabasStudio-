@@ -387,6 +387,85 @@ object CloudServices {
             }
         }
 
+        /**
+         * منح رتبة مؤقتة: تُكتب الرتبة + تاريخ انتهاء (roleExpiresAt).
+         * عند انتهاء المدة تُسترجع الرتبة تلقائياً عبر sweepExpiredRoles.
+         */
+        suspend fun grantTemporaryRole(userId: String, userEmail: String, newType: String, daysValid: Int): Boolean {
+            if (!isFirebaseInitialized) return false
+            if (isOwnerAccount(userEmail)) return false
+            return try {
+                val expiresAt = System.currentTimeMillis() + daysValid * 24L * 60 * 60 * 1000
+                db.collection("users").document(userId)
+                    .update(mapOf("type" to newType, "roleExpiresAt" to expiresAt)).await()
+                Log.d(TAG, "Temporary role $newType granted to $userId for $daysValid days.")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error granting temporary role: ${e.message}", e)
+                false
+            }
+        }
+
+        /** إرجاع الرتب المنتهية إلى Freemium (يُستدعى عند فتح لوحة المستخدمين). */
+        suspend fun sweepExpiredRoles(): Int {
+            if (!isFirebaseInitialized) return 0
+            return try {
+                val now = System.currentTimeMillis()
+                val snapshot = db.collection("users")
+                    .whereLessThan("roleExpiresAt", now).get().await()
+                var count = 0
+                snapshot.documents.forEach { doc ->
+                    runCatching {
+                        doc.reference.update(mapOf("type" to "Freemium", "roleExpiresAt" to com.google.firebase.firestore.FieldValue.delete())).await()
+                        count++
+                    }
+                }
+                if (count > 0) Log.d(TAG, "Swept $count expired roles.")
+                count
+            } catch (e: Exception) {
+                Log.e(TAG, "sweepExpiredRoles failed: ${e.message}", e)
+                0
+            }
+        }
+
+        /** الخط الزمني للمستخدم: مشاريعه + مشترياته مرتبة زمنياً (الأحدث أولاً). */
+        suspend fun getUserTimeline(uid: String): List<Map<String, Any>> {
+            if (!isFirebaseInitialized || uid.isBlank()) return emptyList()
+            return try {
+                val events = mutableListOf<Map<String, Any>>()
+                db.collection("users").document(uid).collection("projects")
+                    .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .limit(15).get().await().documents.forEach { doc ->
+                        val d = doc.data ?: return@forEach
+                        events.add(mapOf(
+                            "kind" to "project",
+                            "title" to (d["title"] as? String ?: d["idea"] as? String ?: "مشروع"),
+                            "ts" to ((d["createdAt"] as? Long) ?: (d["timestamp"] as? Long) ?: 0L)
+                        ))
+                    }
+                db.collection("users").document(uid).collection("purchases")
+                    .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .limit(15).get().await().documents.forEach { doc ->
+                        val d = doc.data ?: return@forEach
+                        events.add(mapOf(
+                            "kind" to "purchase",
+                            "title" to (d["productId"] as? String ?: "شراء"),
+                            "ts" to ((d["timestamp"] as? Long) ?: 0L)
+                        ))
+                    }
+                // تاريخ انتهاء الرتبة المؤقتة كحدث قادم
+                db.collection("users").document(uid).get().await().data?.let { d ->
+                    (d["roleExpiresAt"] as? Long)?.takeIf { it > 0 }?.let { exp ->
+                        events.add(mapOf("kind" to "role_expiry", "title" to "انتهاء الرتبة المؤقتة", "ts" to exp))
+                    }
+                }
+                events.sortedByDescending { (it["ts"] as? Long) ?: 0L }
+            } catch (e: Exception) {
+                Log.e(TAG, "getUserTimeline failed: ${e.message}", e)
+                emptyList()
+            }
+        }
+
         // حفظ مشروع في السحابة
         suspend fun saveProjectToCloud(project: Project) {
             if (!isFirebaseInitialized) {

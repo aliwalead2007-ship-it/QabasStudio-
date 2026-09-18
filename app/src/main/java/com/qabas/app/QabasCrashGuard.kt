@@ -183,9 +183,18 @@ object QabasCrashGuard {
                 pw.println("Thread: $thread")
                 pw.println("Hot path: $hotPath")
                 env.forEach { (k, v) -> pw.println("$k: $v") }
+                pw.println("── Breadcrumbs (آخر الأحداث قبل العطل) ──")
+                pw.println(CrashBreadcrumbs.dump())
                 pw.println("════════════════════════════════════════════")
                 throwable.printStackTrace(pw)
             }
+        }
+        // مرآة سحابية للانهيار القاتل (صامتة عند غياب Firebase)
+        runCatching {
+            val crashlytics = com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance()
+            crashlytics.setCustomKey("source", source)
+            crashlytics.setCustomKey("thread", thread)
+            crashlytics.recordException(throwable)
         }
         try {
             val dir = File(context.filesDir, "crash_logs").apply { mkdirs() }

@@ -273,7 +273,12 @@ object UpdateManager {
     }
 
     private fun parseVersionCode(tag: String): Int {
-        // "v1.2.3" → 10203 — آمن ضد الوسوم الغريبة (لا !!)
+        // الوسم الجديد: "v1.2.1+35321" → رقم البناء بعد + (يطابق versionCode الجهاز).
+        // الوسم القديم: "v1.2.3" → 10203. آمن ضد الوسوم الغريبة (لا !!).
+        val buildPart = tag.substringAfter("+", "")
+        if (buildPart.isNotEmpty()) {
+            return buildPart.filter { it.isDigit() }.toIntOrNull() ?: 0
+        }
         val clean = tag.removePrefix("v").trim()
         val parts = clean.split(".")
         val major = parts.getOrNull(0)?.toIntOrNull() ?: return 0

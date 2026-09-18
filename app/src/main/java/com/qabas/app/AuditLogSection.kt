@@ -1,6 +1,9 @@
 package com.qabas.app
 
 import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +24,20 @@ import com.qabas.app.ui.theme.*
 @Composable
 fun AuditLogSection(context: Context) {
     var entries by remember { mutableStateOf(AuditLogger.readLocal(context)) }
+    var chainState by remember { mutableStateOf<Int?>(null) }
+
+    val csvExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(AuditLogger.buildCsv(entries).toByteArray()) }
+            Toast.makeText(context, "صُدّر سجل التدقيق CSV ✅", Toast.LENGTH_SHORT).show()
+            AuditLogger.log(context, "audit_export_csv", "تصدير ${entries.size} مدخل")
+        }
+    }
+
+    fun refresh() {
+        entries = AuditLogger.readLocal(context)
+        chainState = AuditLogger.verifyChain(context)
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(vertical = 4.dp),
@@ -34,12 +51,27 @@ fun AuditLogSection(context: Context) {
             Column {
                 Text("سجل التدقيق (Audit Log)", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text("كل إجراء حساس موثّق محلياً + سحابياً", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                chainState?.let { broken ->
+                    Text(
+                        if (broken < 0) "سلسلة البصمات سليمة ✓" else "تحذير: كسر في السلسلة عند المدخل #$broken",
+                        color = if (broken < 0) Color(0xFF10B981) else Color(0xFFEF4444),
+                        fontFamily = CairoFont, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            OutlinedButton(
-                onClick = { entries = AuditLogger.readLocal(context) },
-                border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.5f))
-            ) {
-                Text("تحديث", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(
+                    onClick = { csvExport.launch("qabas_audit_${System.currentTimeMillis()}.csv") },
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.5f))
+                ) {
+                    Text("CSV", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp)
+                }
+                OutlinedButton(
+                    onClick = { refresh() },
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.5f))
+                ) {
+                    Text("تحديث", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp)
+                }
             }
         }
 

@@ -57,6 +57,35 @@ fun RevenueDashboard(context: Context) {
     // آخر 6 أشهر
     val monthly = monthlyTotals(purchases)
 
+    // مؤشرات الاشتراكات (RevenueCat-style) — محسوبة فقط من منتجات pro_* الحقيقية
+    val now = System.currentTimeMillis()
+    val dayMs = 24L * 60 * 60 * 1000
+    val mrr = purchases.sumOf {
+        val pid = it["productId"] as? String ?: return@sumOf 0.0
+        val ts = (it["timestamp"] as? Long) ?: 0L
+        when {
+            pid == "pro_1m" && now - ts < 30 * dayMs -> 9.99
+            pid == "pro_1y" && now - ts < 365 * dayMs -> 89.99 / 12.0
+            else -> 0.0
+        }
+    }
+    val activeSubs = purchases.count {
+        val pid = it["productId"] as? String ?: return@count false
+        val ts = (it["timestamp"] as? Long) ?: 0L
+        (pid == "pro_1m" && now - ts < 30 * dayMs) || (pid == "pro_1y" && now - ts < 365 * dayMs)
+    }
+    val last30 = purchases.filter { ((it["timestamp"] as? Long) ?: 0L) >= now - 30 * dayMs }
+        .sumOf { (it["priceAmount"] as? Double) ?: 0.0 }
+    val prev30 = purchases.filter {
+        val ts = (it["timestamp"] as? Long) ?: 0L
+        ts >= now - 60 * dayMs && ts < now - 30 * dayMs
+    }.sumOf { (it["priceAmount"] as? Double) ?: 0.0 }
+    val growthPct = if (prev30 > 0) (last30 - prev30) / prev30 * 100.0 else if (last30 > 0) 100.0 else 0.0
+    // معدل إعادة الشراء: مشترون بأكثر من عملية / إجمالي المشترين (بديل صادق للاحتفاظ)
+    val byUser = purchases.groupBy { it["userId"] as? String ?: "?" }
+    val repeatRate = if (byUser.isNotEmpty())
+        byUser.count { it.value.size > 1 } * 100.0 / byUser.size else 0.0
+
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             colors = CardDefaults.cardColors(containerColor = CardSurface),
@@ -84,6 +113,29 @@ fun RevenueDashboard(context: Context) {
                 Text("لا توجد مبيعات بعد.", color = TextSecondary, fontFamily = TajawalFont, fontSize = 16.sp)
             }
         } else {
+            // مؤشرات الأداء: MRR + النمو + الاشتراكات النشطة + إعادة الشراء
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RevenueKpi(
+                    value = "$${"%.2f".format(mrr)}", label = "الإيراد الشهري MRR",
+                    tint = Color(0xFF10B981), modifier = Modifier.weight(1f)
+                )
+                RevenueKpi(
+                    value = "${if (growthPct >= 0) "+" else ""}${"%.0f".format(growthPct)}٪",
+                    label = "نمو 30 يوم",
+                    tint = if (growthPct >= 0) Color(0xFF10B981) else Color(0xFFEF4444),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RevenueKpi(
+                    value = activeSubs.toString(), label = "اشتراكات نشطة",
+                    tint = Color(0xFF38BDF8), modifier = Modifier.weight(1f)
+                )
+                RevenueKpi(
+                    value = "${"%.0f".format(repeatRate)}٪", label = "إعادة الشراء",
+                    tint = GoldPrimary, modifier = Modifier.weight(1f)
+                )
+            }
             // الرسم البياني الشهري
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardSurface),
@@ -165,6 +217,21 @@ fun RevenueDashboard(context: Context) {
 }
 
 private data class MonthTotal(val label: String, val value: Double)
+
+@Composable
+private fun RevenueKpi(value: String, label: String, tint: Color, modifier: Modifier = Modifier) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.35f)),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, color = tint, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(label, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
+        }
+    }
+}
 
 private fun monthlyTotals(purchases: List<Map<String, Any>>): List<MonthTotal> {
     val now = Calendar.getInstance()

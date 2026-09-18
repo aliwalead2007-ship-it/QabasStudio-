@@ -17,7 +17,14 @@ class QabasApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        PerfTracker.onAppCreate()
         QabasCrashGuard.install(this)
+
+        // عدّاد الإقلاعات لصحة الإصدار (انهيارات / إقلاعات)
+        runCatching {
+            val prefs = getSharedPreferences("qabas_prefs", MODE_PRIVATE)
+            prefs.edit().putInt("app_launch_count", prefs.getInt("app_launch_count", 0) + 1).apply()
+        }
 
         // رتبة «مطور» تلقائية لبريد المالك فقط — ولو كان مسجل الدخول مسبقاً (بطلب من المالك)
         try {

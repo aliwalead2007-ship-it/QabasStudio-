@@ -40,6 +40,10 @@
             android:name=".SmartPublishReminderReceiver"
             android:enabled="true"
             android:exported="false" />
+        <receiver
+            android:name=".AutoBackupReceiver"
+            android:enabled="true"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

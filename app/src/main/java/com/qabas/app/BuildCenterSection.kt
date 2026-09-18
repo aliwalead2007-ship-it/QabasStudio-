@@ -665,8 +665,13 @@ private fun BuildStat(value: String, label: String) {
         Text(label, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
     }
 }
-
-private fun parseTagCode(tag: String): Int {    val parts = tag.removePrefix("v").trim().split(".")
+private fun parseTagCode(tag: String): Int {
+    // يطابق UpdateManager: رقم البناء بعد + أولاً، ثم v1.2.3 الكلاسيكي
+    val buildPart = tag.substringAfter("+", "")
+    if (buildPart.isNotEmpty()) {
+        return buildPart.filter { it.isDigit() }.toIntOrNull() ?: 0
+    }
+    val parts = tag.removePrefix("v").trim().split(".")
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
     val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0

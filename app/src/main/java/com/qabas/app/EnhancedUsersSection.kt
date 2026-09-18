@@ -39,15 +39,30 @@ fun EnhancedUsersSection(context: Context, devUsers: androidx.compose.runtime.sn
     var typeFilter by remember { mutableStateOf("الكل") }
     var statusFilter by remember { mutableStateOf("الكل") }
     var selectedUser by remember { mutableStateOf<DevUser?>(null) }
+    var userTimeline by remember { mutableStateOf<List<Map<String, Any>>?>(null) }
+    LaunchedEffect(selectedUser?.id) {
+        userTimeline = if (selectedUser != null) {
+            CloudServices.Database.getUserTimeline(selectedUser!!.id)
+        } else null
+    }
     var confirmRoleUser by remember { mutableStateOf<DevUser?>(null) }
     var confirmSuspendUser by remember { mutableStateOf<DevUser?>(null) }
     var confirmNewRole by remember { mutableStateOf<String?>(null) }
+    var tempRoleDays by remember { mutableStateOf(0) } // 0 = دائم
     var roleMenuUser by remember { mutableStateOf<DevUser?>(null) }
     var showAddUserDialog by remember { mutableStateOf(false) }
     var newUserName by remember { mutableStateOf("") }
     var newUserEmail by remember { mutableStateOf("") }
     var newUserType by remember { mutableStateOf("Freemium") }
     val coroutineScope = rememberCoroutineScope()
+
+    // إرجاع الرتب المؤقتة المنتهية عند فتح القسم
+    LaunchedEffect(Unit) {
+        val swept = CloudServices.Database.sweepExpiredRoles()
+        if (swept > 0) {
+            Toast.makeText(context, "انتهت $swept رتبة مؤقتة وعادت إلى Freemium", Toast.LENGTH_LONG).show()
+        }
+    }
 
     val types = listOf("الكل", "مطور", "خاص", "Freemium")
     val statuses = listOf("الكل", "نشط", "موقوف")
@@ -140,31 +155,50 @@ fun EnhancedUsersSection(context: Context, devUsers: androidx.compose.runtime.sn
         )
     }
 
-    // ---- تأكيد تغيير الرتبة ----
+    // ---- تأكيد تغيير الرتبة (دائم أو مؤقت) ----
     confirmRoleUser?.let { user ->
         AlertDialog(
-            onDismissRequest = { confirmRoleUser = null; confirmNewRole = null },
+            onDismissRequest = { confirmRoleUser = null; confirmNewRole = null; tempRoleDays = 0 },
             title = { Text("تأكيد تغيير رتبة المستخدم", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold) },
-            text = { Text("تغيير رتبة «${user.name}» إلى «${confirmNewRole ?: ""}»؟", color = Color.White, fontFamily = NotoSansFont) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("تغيير رتبة «${user.name}» إلى «${confirmNewRole ?: ""}»؟", color = Color.White, fontFamily = NotoSansFont)
+                    Text("مدة الرتبة:", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0 to "دائم", 7 to "7 أيام", 30 to "30 يوم").forEach { (days, label) ->
+                            FilterChip(
+                                selected = tempRoleDays == days,
+                                onClick = { tempRoleDays = days },
+                                label = { Text(label, fontFamily = CairoFont, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     val newType = confirmNewRole ?: return@TextButton
+                    val days = tempRoleDays
                     coroutineScope.launch {
-                        val success = CloudServices.Database.updateUserRole(user.id, user.email, newType)
+                        val success = if (days > 0) {
+                            CloudServices.Database.grantTemporaryRole(user.id, user.email, newType, days)
+                        } else {
+                            CloudServices.Database.updateUserRole(user.id, user.email, newType)
+                        }
                         if (success) {
                             val idx = devUsers.indexOf(user)
-                            if (idx != -1) devUsers[idx] = devUsers[idx].copy(type = newType)
-                            AuditLogger.log(context, "user_role_change", "${user.email} -> $newType")
+                            if (idx != -1) devUsers[idx] = devUsers[idx].copy(type = if (days > 0) "$newType (مؤقت $days يوم)" else newType)
+                            AuditLogger.log(context, "user_role_change", "${user.email} -> $newType" + if (days > 0) " ($days يوم)" else "")
                             Toast.makeText(context, "تم تغيير الرتبة وحفظه سحابياً ✅", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(context, "فشل تغيير الرتبة: لاحظ حماية حساب المالك/الاتصال", Toast.LENGTH_LONG).show()
                         }
                     }
-                    confirmRoleUser = null; confirmNewRole = null
+                    confirmRoleUser = null; confirmNewRole = null; tempRoleDays = 0
                 }) { Text("تأكيد ✓", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmRoleUser = null; confirmNewRole = null }) { Text("إلغاء", color = Color.Gray) }
+                TextButton(onClick = { confirmRoleUser = null; confirmNewRole = null; tempRoleDays = 0 }) { Text("إلغاء", color = Color.Gray) }
             },
             containerColor = DeepSlate
         )
@@ -200,8 +234,9 @@ fun EnhancedUsersSection(context: Context, devUsers: androidx.compose.runtime.sn
         )
     }
 
-    // ---- تفاصيل المستخدم ----
+    // ---- تفاصيل المستخدم + خطه الزمني ----
     selectedUser?.let { user ->
+        val timeline = userTimeline
         AlertDialog(
             onDismissRequest = { selectedUser = null },
             title = { Text("تفاصيل المستخدم", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold) },
@@ -213,6 +248,29 @@ fun EnhancedUsersSection(context: Context, devUsers: androidx.compose.runtime.sn
                     Text("المشاريع: ${user.projectCount}", color = Color.White, fontFamily = NotoSansFont)
                     Text("التسجيل: ${user.regDate}", color = Color.White, fontFamily = NotoSansFont)
                     Text("الحالة: ${if (user.isSuspended) "موقوف 🔴" else "نشط 🟢"}", color = Color.White, fontFamily = NotoSansFont)
+                    HorizontalDivider(color = Color(0xFF1E293B))
+                    Text("الخط الزمني:", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    when {
+                        timeline == null -> Text("جاري التحميل...", color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
+                        timeline!!.isEmpty() -> Text("لا نشاط مسجّل لهذا المستخدم.", color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
+                        else -> {
+                            for (ev in timeline!!.take(12)) {
+                                val kind = ev["kind"] as? String ?: ""
+                                val icon = when (kind) {
+                                    "project" -> "🎬"
+                                    "purchase" -> "💰"
+                                    "role_expiry" -> "⏳"
+                                    else -> "•"
+                                }
+                                val ts = (ev["ts"] as? Long) ?: 0L
+                                val date = if (ts > 0) DevDashboardFormatters.formatRegDate(ts) else ""
+                                Text(
+                                    "$icon ${ev["title"]} — $date",
+                                    color = Color.White, fontFamily = NotoSansFont, fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {

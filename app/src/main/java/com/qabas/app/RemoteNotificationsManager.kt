@@ -35,8 +35,12 @@ object RemoteNotificationsManager {
         val title: String,
         val message: String,
         val target: String,
-        val createdAt: Long
-    )
+        val createdAt: Long,
+        val sendAt: Long = 0L
+    ) {
+        /** موعد العرض الفعلي — فوري إن غاب الحقل (توافق مع المستندات القديمة). */
+        val dueAt: Long get() = if (sendAt > 0) sendAt else createdAt
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _lastSendResult = MutableStateFlow<String?>(null)
@@ -45,7 +49,13 @@ object RemoteNotificationsManager {
     private fun db() = FirebaseFirestore.getInstance()
 
     /** كتابة بث جديد إلى السحابة — يُرجع معرف المستند عند النجاح. */
-    suspend fun sendBroadcast(context: Context, title: String, message: String, target: String = "all"): String? {
+    suspend fun sendBroadcast(
+        context: Context,
+        title: String,
+        message: String,
+        target: String = "all",
+        sendAt: Long = 0L
+    ): String? {
         return try {
             if (!CloudServices.isFirebaseInitialized) {
                 _lastSendResult.value = "التطبيق في الوضع المحلي — لا توجد سحابة لاستقبال البث"
@@ -57,6 +67,7 @@ object RemoteNotificationsManager {
                     "message" to message,
                     "target" to target,
                     "createdAt" to System.currentTimeMillis(),
+                    "sendAt" to if (sendAt > 0) sendAt else System.currentTimeMillis(),
                     "sender" to AdminGuard.currentIdentity(context)
                 )
             ).await()
@@ -94,7 +105,8 @@ object RemoteNotificationsManager {
                                 title = d["title"] as? String ?: "",
                                 message = d["message"] as? String ?: "",
                                 target = d["target"] as? String ?: "all",
-                                createdAt = (d["createdAt"] as? Long) ?: 0L
+                                createdAt = (d["createdAt"] as? Long) ?: 0L,
+                                sendAt = (d["sendAt"] as? Long) ?: 0L
                             )
                         }
                         trySend(list)
@@ -112,25 +124,87 @@ object RemoteNotificationsManager {
         observeBroadcasts().distinctUntilChanged()
     }
 
+    /** هل ينتمي هذا الجهاز للشريحة المستهدفة؟ (all/developers/premium) */
+    fun deviceMatchesTarget(context: Context, target: String): Boolean {
+        if (target == "all") return true
+        val prefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+        return when (target) {
+            "developers" -> prefs.getBoolean("is_developer", false)
+            "premium" -> prefs.getBoolean("is_premium", false) ||
+                prefs.getBoolean("is_developer", false)
+            else -> true
+        }
+    }
+
+    /** حذف بث مجدول من السحابة (إلغاء قبل موعده). */
+    suspend fun cancelBroadcast(docId: String): Boolean {
+        return try {
+            if (!CloudServices.isFirebaseInitialized) return false
+            db().collection("notifications").document(docId).delete().await()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "cancelBroadcast failed: ${e.message}", e)
+            false
+        }
+    }
+
     /** يُشغَّل مرة من QabasApplication: يستمع للبثّات ويعرض إشعاراً محلياً لم يره الجهاز. */
     fun startInbox(context: Context) = scope.launch {
+        // إعادة فحص دورية للبثّات المجدولة (الـ listener لا يُطلق عند حلول الموعد وحده)
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(15 * 60 * 1000L)
+                checkDue(context)
+            }
+        }
         inboxFlow.collect { broadcasts ->
-            if (broadcasts.isEmpty()) return@collect
-            val prefs = context.getSharedPreferences(SEEN_PREFS, Context.MODE_PRIVATE)
-            val seen = prefs.getStringSet("ids", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-            var changed = false
-            broadcasts.forEach { b ->
-                if (b.id !in seen) {
-                    seen.add(b.id)
-                    changed = true
-                    runCatching {
-                        AppNotificationService.sendNotification(context, b.title, b.message)
-                    }
+            deliverDue(context, broadcasts)
+        }
+    }
+
+    private suspend fun checkDue(context: Context) {
+        try {
+            if (!CloudServices.isFirebaseInitialized) return
+            val snapshot = db().collection("notifications")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(50)
+                .get()
+                .await()
+            val list = snapshot.documents.mapNotNull { doc ->
+                val d = doc.data ?: return@mapNotNull null
+                Broadcast(
+                    id = doc.id,
+                    title = d["title"] as? String ?: "",
+                    message = d["message"] as? String ?: "",
+                    target = d["target"] as? String ?: "all",
+                    createdAt = (d["createdAt"] as? Long) ?: 0L,
+                    sendAt = (d["sendAt"] as? Long) ?: 0L
+                )
+            }
+            deliverDue(context, list)
+        } catch (e: Exception) {
+            Log.e(TAG, "checkDue failed: ${e.message}", e)
+        }
+    }
+
+    private fun deliverDue(context: Context, broadcasts: List<Broadcast>) {
+        if (broadcasts.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val prefs = context.getSharedPreferences(SEEN_PREFS, Context.MODE_PRIVATE)
+        val seen = prefs.getStringSet("ids", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        var changed = false
+        broadcasts.forEach { b ->
+            // مجدول لم يحن موعده بعد — يُترك لفحص لاحق
+            if (b.id !in seen && b.dueAt <= now && deviceMatchesTarget(context, b.target)) {
+                seen.add(b.id)
+                changed = true
+                runCatching {
+                    AppNotificationService.sendNotification(context, b.title, b.message)
                 }
             }
-            if (changed) {
-                prefs.edit().putStringSet("ids", seen).apply()
-            }
+        }
+        if (changed) {
+            prefs.edit().putStringSet("ids", seen).apply()
         }
     }
 }

@@ -37,6 +37,10 @@ fun AppNavigation(
         },
         label = "qabas_screen_transition"
     ) { appState ->
+    androidx.compose.runtime.LaunchedEffect(appState) {
+        PerfTracker.onFirstFrame(appState.name)
+        CrashBreadcrumbs.screen(appState.name)
+    }
     when (appState) {
         AppState.DATA_LOADING -> {
             DataLoadingScreen(

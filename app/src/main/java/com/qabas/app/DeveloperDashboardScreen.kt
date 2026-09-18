@@ -872,6 +872,12 @@ fun SystemControlsSection(context: Context) {
                 modifier = Modifier.padding(12.dp)
             )
         }
+
+        // ── القواعد المشروطة وتجارب A/B ──
+        HorizontalDivider(color = Color(0xFF1E293B))
+        Text("القواعد المشروطة وتجارب A/B", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text("تجاوز قيمة مفتاح لشريحة فقط (إصدار/نوع مستخدم/نسبة طرح) — تُقيَّم الأعلى أولوية أولاً.", color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
+        ConfigOverridesEditor(context = context)
     }
 }
 
@@ -985,17 +991,50 @@ fun NotificationsSection(context: Context) {
                     shape = RoundedCornerShape(8.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
+                // الشريحة المستهدفة
+                Text("الشريحة المستهدفة", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                var notifTarget by remember { mutableStateOf("all") }
+                var notifDelayHours by remember { mutableStateOf(0) }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("all" to "الكل", "premium" to "المميزون", "developers" to "المطورون").forEach { (key, label) ->
+                        FilterChip(
+                            selected = notifTarget == key,
+                            onClick = { notifTarget = key },
+                            label = { Text(label, fontFamily = CairoFont, fontSize = 11.sp) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                // موعد الإرسال
+                Text("موعد الإرسال", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0 to "فوري", 1 to "بعد ساعة", 6 to "بعد 6 ساعات", 24 to "بعد يوم").forEach { (hours, label) ->
+                        FilterChip(
+                            selected = notifDelayHours == hours,
+                            onClick = { notifDelayHours = hours },
+                            label = { Text(label, fontFamily = CairoFont, fontSize = 11.sp) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
                         if (notifTitle.isNotBlank() && notifMessage.isNotBlank()) {
                             val title = notifTitle
                             val message = notifMessage
-                            AppNotificationService.sendNotification(context, title, message)
-                            sentNotifications = AppNotificationService.getNotifications(context)
+                            val target = notifTarget
+                            val sendAt = if (notifDelayHours > 0) System.currentTimeMillis() + notifDelayHours * 3600_000L else 0L
+                            // الفوري يُعرض محلياً أيضاً؛ المجدول يصل الأجهزة عند موعده فقط
+                            if (notifDelayHours == 0) {
+                                AppNotificationService.sendNotification(context, title, message)
+                                sentNotifications = AppNotificationService.getNotifications(context)
+                            }
                             notificationScope.launch {
-                                val id = RemoteNotificationsManager.sendBroadcast(context, title, message)
-                                val toast = if (id != null) "تم بث الإشعار سحابياً لجميع الأجهزة ✅"
-                                    else "عُرض محلياً فقط: ${RemoteNotificationsManager.lastSendResult.value}"
+                                val id = RemoteNotificationsManager.sendBroadcast(context, title, message, target, sendAt)
+                                val toast = if (id != null) {
+                                    if (notifDelayHours > 0) "جُدول البث (بعد $notifDelayHours ساعة) ✅"
+                                    else "تم بث الإشعار سحابياً لجميع الأجهزة ✅"
+                                } else "فشل البث: ${RemoteNotificationsManager.lastSendResult.value}"
                                 Toast.makeText(context, toast, Toast.LENGTH_LONG).show()
                             }
                             notifTitle = ""
@@ -1010,7 +1049,43 @@ fun NotificationsSection(context: Context) {
                 ) {
                     Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("إرسال الإشعار الآن", color = Color.Black, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(
+                        if (notifDelayHours > 0) "جدولة الإشعار" else "إرسال الإشعار الآن",
+                        color = Color.Black, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp
+                    )
+                }
+            }
+        }
+
+        // البثّات المجدولة (لم يحن موعدها) مع إلغاء
+        val cloudBroadcasts by RemoteNotificationsManager.observeBroadcasts().collectAsState(initial = emptyList())
+        val pendingBroadcasts = cloudBroadcasts.filter { it.dueAt > System.currentTimeMillis() }
+        if (pendingBroadcasts.isNotEmpty()) {
+            Text("بثّات مجدولة (${pendingBroadcasts.size})", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            pendingBroadcasts.forEach { b ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = CardSurface),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f))
+                ) {
+                    Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(b.title, color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                "إلى ${mapOf("all" to "الكل", "premium" to "المميزون", "developers" to "المطورون")[b.target] ?: b.target} • ${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(b.dueAt))}",
+                                color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp
+                            )
+                        }
+                        TextButton(onClick = {
+                            notificationScope.launch {
+                                val ok = RemoteNotificationsManager.cancelBroadcast(b.id)
+                                Toast.makeText(context, if (ok) "أُلغي البث المجدول" else "فشل الإلغاء", Toast.LENGTH_SHORT).show()
+                            }
+                        }) {
+                            Text("إلغاء", color = Color.Red, fontFamily = CairoFont, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
@@ -1044,6 +1119,135 @@ fun NotificationsSection(context: Context) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(notif.title, color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
                             Text(notif.message, color = Color.White, fontFamily = NotoSansFont, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ConfigOverridesEditor(context: Context) {
+    var rules by remember { mutableStateOf<List<AppRemoteConfig.OverrideRule>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+
+    // حقول قاعدة جديدة
+    var selKey by remember { mutableStateOf(AppRemoteConfig.KEY_MAINTENANCE) }
+    var selValue by remember { mutableStateOf("true") }
+    var selUserType by remember { mutableStateOf("all") }
+    var selPercent by remember { mutableStateOf(100) }
+    var selMinVersion by remember { mutableStateOf("0") }
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            AppRemoteConfig.invalidateOverrides()
+            rules = AppRemoteConfig.fetchOverrides(context)
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    val keyLabels = mapOf(
+        AppRemoteConfig.KEY_MAINTENANCE to "وضع الصيانة",
+        AppRemoteConfig.KEY_ACCEPT_REQUESTS to "استقبال الطلبات",
+        AppRemoteConfig.KEY_AUTO_AI_REPLY to "الرد الآلي",
+        AppRemoteConfig.KEY_MAINTENANCE_MESSAGE to "رسالة الصيانة"
+    )
+    val typeLabels = mapOf("all" to "الكل", "free" to "المجانيون", "premium" to "المميزون", "developers" to "المطورون")
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // اختيار المفتاح
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            keyLabels.forEach { (key, label) ->
+                FilterChip(selected = selKey == key, onClick = { selKey = key }, label = { Text(label, fontFamily = CairoFont, fontSize = 11.sp) })
+            }
+        }
+        // القيمة
+        if (selKey == AppRemoteConfig.KEY_MAINTENANCE_MESSAGE) {
+            OutlinedTextField(
+                value = selValue, onValueChange = { selValue = it },
+                label = { Text("نص الرسالة البديلة", fontSize = 11.sp) },
+                modifier = Modifier.fillMaxWidth(), singleLine = false, maxLines = 2
+            )
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("true" to "تفعيل", "false" to "تعطيل").forEach { (v, label) ->
+                    FilterChip(selected = selValue == v, onClick = { selValue = v }, label = { Text(label, fontFamily = CairoFont, fontSize = 11.sp) })
+                }
+            }
+        }
+        // الشريحة
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            typeLabels.forEach { (t, label) ->
+                FilterChip(selected = selUserType == t, onClick = { selUserType = t }, label = { Text(label, fontFamily = CairoFont, fontSize = 11.sp) })
+            }
+        }
+        // النسبة + أدنى إصدار
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("الطرح: $selPercent٪", color = Color.White, fontFamily = NotoSansFont, fontSize = 12.sp, modifier = Modifier.width(90.dp))
+            Slider(value = selPercent.toFloat(), onValueChange = { selPercent = it.toInt() }, valueRange = 0f..100f, modifier = Modifier.weight(1f))
+        }
+        OutlinedTextField(
+            value = selMinVersion, onValueChange = { selMinVersion = it.filter { c -> c.isDigit() } },
+            label = { Text("أدنى versionCode (0 = الكل)", fontSize = 11.sp) },
+            modifier = Modifier.fillMaxWidth(), singleLine = true
+        )
+        Button(
+            onClick = {
+                scope.launch {
+                    val ok = AppRemoteConfig.saveOverride(
+                        context,
+                        AppRemoteConfig.OverrideRule(
+                            key = selKey, value = selValue, userType = selUserType,
+                            minVersion = selMinVersion.toIntOrNull() ?: 0,
+                            percent = selPercent, priority = (rules.maxOfOrNull { it.priority } ?: 0) + 1
+                        )
+                    )
+                    Toast.makeText(context, if (ok) "حُفظت القاعدة ✅" else "فشل الحفظ", Toast.LENGTH_SHORT).show()
+                    if (ok) reload()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text("إضافة القاعدة", color = Color.Black, fontFamily = CairoFont, fontWeight = FontWeight.Bold)
+        }
+
+        if (loading) {
+            CircularProgressIndicator(color = GoldPrimary, modifier = Modifier.size(24.dp))
+        } else if (rules.isEmpty()) {
+            Text("لا قواعد بعد — القيم العامة هي الفعالة.", color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
+        } else {
+            rules.forEach { rule ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0B0F19)),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${keyLabels[rule.key] ?: rule.key} = ${rule.value}",
+                                color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                            )
+                            Text(
+                                "${typeLabels[rule.userType] ?: rule.userType} • ${rule.percent}٪ • v${rule.minVersion}+",
+                                color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp
+                            )
+                        }
+                        TextButton(onClick = {
+                            scope.launch {
+                                val ok = AppRemoteConfig.deleteOverride(rule.id)
+                                Toast.makeText(context, if (ok) "حُذفت القاعدة" else "فشل الحذف", Toast.LENGTH_SHORT).show()
+                                if (ok) reload()
+                            }
+                        }) {
+                            Text("حذف", color = Color.Red, fontFamily = CairoFont, fontSize = 12.sp)
                         }
                     }
                 }
@@ -1111,6 +1315,11 @@ fun StatsSection(requests: List<AppRequestService.AppRequest>, userCount: Int) {
             }
         }
         item {
+            Text("قمع التحويل والاحتفاظ (حقيقي من الطلبات)", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            RequestFunnelCard(requests = requests)
+        }
+        item {
             Text("إحصائيات النظام والشبكة الحقيقية", color = GoldPrimary, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1128,6 +1337,79 @@ fun StatsSection(requests: List<AppRequestService.AppRequest>, userCount: Int) {
                 )
             }
         }
+    }
+}
+
+@Composable
+fun RequestFunnelCard(requests: List<AppRequestService.AppRequest>) {
+    val total = requests.size
+    val started = requests.count { it.status == "in_progress" || it.status == "completed" }
+    val completed = requests.count { it.status == "completed" }
+    val paid = requests.count { it.isPaid }
+    val stages = listOf(
+        "إجمالي الطلبات" to total,
+        "بدأ التنفيذ" to started,
+        "اكتمل" to completed,
+        "مدفوع" to paid
+    )
+    // الاحتفاظ: طالبون بأكثر من طلب + نشاط 7/30 يوم
+    val now = System.currentTimeMillis()
+    val dayMs = 24L * 60 * 60 * 1000
+    val byUser = requests.groupBy { it.userEmail }
+    val repeatPct = if (byUser.isNotEmpty()) byUser.count { it.value.size > 1 } * 100.0 / byUser.size else 0.0
+    val active7 = byUser.count { (_, list) -> list.any { now - it.timestamp < 7 * dayMs } }
+    val active30 = byUser.count { (_, list) -> list.any { now - it.timestamp < 30 * dayMs } }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            stages.forEachIndexed { i, (label, count) ->
+                val pct = if (total > 0) count * 100.0 / total else 0.0
+                Column {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(label, color = Color.White, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("$count • ${"%.0f".format(pct)}٪", color = GoldPrimary, fontFamily = NotoSansFont, fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(8.dp)
+                            .background(Color(0xFF1E293B), RoundedCornerShape(4.dp))
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxHeight()
+                                .fillMaxWidth((pct / 100).toFloat().coerceIn(0f, 1f))
+                                .background(
+                                    when (i) {
+                                        0 -> Color(0xFF38BDF8)
+                                        1 -> Color(0xFF8B5CF6)
+                                        2 -> Color(0xFF10B981)
+                                        else -> GoldPrimary
+                                    },
+                                    RoundedCornerShape(4.dp)
+                                )
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(color = Color(0xFF1E293B))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                FunnelMiniStat("${"%.0f".format(repeatPct)}٪", "طلب متكرر")
+                FunnelMiniStat("$active7", "نشط 7 أيام")
+                FunnelMiniStat("$active30", "نشط 30 يوم")
+            }
+        }
+    }
+}
+
+@Composable
+private fun FunnelMiniStat(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text(label, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
     }
 }
 
@@ -2406,6 +2688,9 @@ fun CrashLogsSection(context: Context) {
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
+        // ─── صحة الإصدار: انهيارات / إقلاعات ───
+        ReleaseHealthStrip(context = context)
+
         // ─── شريط الملخص العلوي ───
         SummaryStrip(
             total = crashFiles.size,
@@ -2586,6 +2871,42 @@ private fun SummaryStrip(total: Int, types: Int, lastMs: Long) {
         StatPill("إجمالي", total.toString(), GoldPrimary)
         StatPill("أنواع", types.toString(), Color(0xFF22D3EE))
         StatPill("آخر انهيار", lastText, Color(0xFFF87171))
+    }
+}
+
+@Composable
+private fun ReleaseHealthStrip(context: Context) {
+    val (crashes, launches) = remember { CrashBreadcrumbs.releaseHealth(context) }
+    val rate = if (launches > 0) crashes * 100.0 / launches else 0.0
+    val tint = when {
+        launches == 0 -> TextSecondary
+        rate < 1.0 -> Color(0xFF10B981)
+        rate < 5.0 -> Color(0xFFF59E0B)
+        else -> Color(0xFFEF4444)
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("صحة الإصدار الحالي", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(
+                    if (launches == 0) "لا بيانات إقلاع بعد" else "$crashes انهيار / $launches إقلاع",
+                    color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp
+                )
+            }
+            Text(
+                if (launches == 0) "—" else "${"%.1f".format(rate)}٪",
+                color = tint, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 20.sp
+            )
+        }
     }
 }
 

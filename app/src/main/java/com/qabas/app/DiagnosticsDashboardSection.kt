@@ -304,6 +304,29 @@ fun DiagnosticsDashboardSection(
                     }
                 }
 
+                // ── Performance ──
+                item {
+                    val coldMs = PerfTracker.coldStartMs()
+                    val screens = PerfTracker.screenTimes()
+                    diagnosticCategory("الأداء ⚡", "performance", expandedCategory, { expandedCategory = it }) {
+                        DiagnosticRow(
+                            "زمن التشغيل (منذ الإقلاع)",
+                            if (coldMs >= 0) DevDashboardFormatters.formatLatency(coldMs) else "لم يُسجَّل بعد"
+                        )
+                        if (screens.isEmpty()) {
+                            DiagnosticRow("الشاشات", "لا قياسات بعد — تنقّل بين الشاشات")
+                        } else {
+                            DiagnosticRow("شاشات مقاسة", "${screens.size}")
+                            screens.take(12).forEach { s ->
+                                DiagnosticRow(
+                                    "  ${s.screen}",
+                                    "${DevDashboardFormatters.formatLatency(s.msFromStart)} • ${s.visits} زيارة"
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Bottom spacing
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
