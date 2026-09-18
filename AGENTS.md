@@ -344,6 +344,14 @@
 | `DashboardSection` enum | أُضيف `HEALTH_CHECK` كقسم مستقل (لا يُلغي `API_KEYS`). |
 | الملفات | `DeveloperDashboardScreen.kt` (أضاف `isSupabaseOnline` state، `HEALTH_CHECK` في enum وTopAppBar و`when`، `onHealthCheck`/`onApiConsumption` callbacks، بطاقتين جديدتان في `items`). |
 
+### كـ) «المحرر» — وضع التشغيل الحقيقي داخل التطبيق (سبتمبر 2026)
+
+| عنصر | ماذا أُنجز |
+|-----|------------|
+| `AiOperatorEngine.kt` (جديد) | `enum class OperatorKind { STATUS, DIAGNOSE, SCRIPT, CODE_HINT, CHAT }` + `data class OperatorIntent(kind, order, topic="")` + `object AiOperatorRouter` فيه `classify(order)` (ترتيب أولوية حتمي: STATUS → DIAGNOSE → SCRIPT → CODE_HINT → CHAT) و`suspend fun execute(context, intent, onProgress)` يُنفّذ الفعل فعلياً ويُرجع نتيجة حقيقية — لا نجاح وهمي. |
+| `AiEditorSection.kt` | تبديل وضع بين «تشغيل في التطبيق» (افتراضي) و«تحرير الشيفرة»؛ في وضع التشغيل: `operatorSend(order)` — «افحص/طبيب/صحة» → `AppSelfDoctor.runFullDiagnosis(context)` فعلياً مع عرض `DoctorReport`، «سكريبت/فيديو …» → `AppServices.generateScript(idea)` وعرض المشاهد، «الحالة/الجهاز» → تقرير أرقام حقيقية (StatFs/Runtime/BuildConfig)، وإلا محادثة مجانية؛ أمثلة جاهزة قبل حقل الإدخال. وضع تحرير الشيفرة لم يتأثر. |
+| الفكرة | المستخدم يكتب أمراً عربياً فينفّذه التطبيق فعلاً داخل نفسه (لا مجرد تعديل كود عبر GitHub)؛ ما لا يمكن تنفيذه حقيقةً يُوجَّه بصدق لمسار «تحرير الشيفرة» (GitHub → CI → APK) بدل ادعاء التنفيذ. |
+
 ---
 
 ## 4. الخطوة التالية الوحيدة الآن
@@ -354,6 +362,9 @@
 1. `processOneScene` الآن يستخدم `"${scene.title} ${scene.description}"` بدلاً من `scene.description` فقط — بحث وسائط أفضل
 2. `CinematicExportScreen` الآن يمرر `preset.name` بدلاً من `title` كـ `videoQuality` — جودة HIGH صحيحة لـ PRO_1080P
 3. تصحيح خطأ إملائي `فشل جبل` → `فشل جلب`
+
+**«المحرر» — وضع التشغيل ينتظر التحقق (يحتاج APK جديداً):**
+→ من لوحة المطور ← «المحرر»: الوضع الافتراضي «تشغيل في التطبيق». اكتب «افحص» → يظهر تقرير `AppSelfDoctor` الفعلي (ليس نصاً)، «سكريبت عن …» → مشاهد مولّدة فعلاً، «الحالة» → أرقام حقيقية (تخزين/ذاكرة/إصدار)، وأي سؤال حر → محادثة. ثم بدّل إلى «تحرير الشيفرة» للتأكد أن مسار GitHub/CI كما هو دون تأثر.
 
 **يعتمد على ما يبلّغ به المستخدم بعد التجربة:**
 
@@ -479,6 +490,7 @@ app/src/main/assets/audio/entry_ayah_ruj3a.m4a
 > - **`ProfileScreen.kt`**: الشارات والإحصائيات تعتمد على المشاريع والمنشورات الحقيقية فقط. حُذف زر "تصفير الإحصائيات" العشوائي.
 > **الآن:** التطبيق يعمل مجانياً 100% + بلا إنترنت + بلا مفاتيح لأغلب الوظائف. الطبقات السحابية اختيارية فقط.
 > **إصلاحات بناء:** `JitPack` في `settings.gradle.kts` + `COVERR_API_KEY` في `.env.example` — البناء المحلي يحتاج `:app:assembleDebug` لاختبار.
+> **«المحرر» — وضع التشغيل الحقيقي (سبتمبر 2026):** `AiOperatorEngine.kt` جديد (`OperatorKind` + `OperatorIntent` + `AiOperatorRouter.classify/execute` بأولوية STATUS → DIAGNOSE → SCRIPT → CODE_HINT → CHAT) و`AiEditorSection.kt` صار بوضعين: «تشغيل في التطبيق» (افتراضي) ينفّذ الأمر العربي فعلاً داخل التطبيق — «افحص» → `AppSelfDoctor.runFullDiagnosis`، «سكريبت عن …» → `AppServices.generateScript`، «الحالة» → أرقام جهاز حقيقية (StatFs/Runtime/BuildConfig)، وإلا محادثة مجانية — و«تحرير الشيفرة» (مسار GitHub/CI) لم يتأثر. **ينتظر التحقق بـ APK جديد** (لا JDK/SDK محلياً).
 
  <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker

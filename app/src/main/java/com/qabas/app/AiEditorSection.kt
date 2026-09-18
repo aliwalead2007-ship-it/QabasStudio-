@@ -3,6 +3,7 @@ package com.qabas.app
 import android.content.Context
 import android.util.Base64
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -62,6 +63,7 @@ fun AiEditorSection(
     var input by remember { mutableStateOf("") }
     var lastOrder by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var opMode by remember { mutableStateOf(true) }
     var proposal by remember { mutableStateOf<String?>(null) }
     var commitMsg by remember { mutableStateOf("") }
     var loadedFileContent by remember { mutableStateOf("") }
@@ -171,9 +173,40 @@ fun AiEditorSection(
     suspend fun llm7Chat(prompt: String, system: String): String? =
         openAiChat("https://api.llm7.io/v1/chat/completions", "unused", "fast", prompt, system)
 
+    fun operatorSend(order: String) {
+        val finalOrder = order.trim()
+        if (finalOrder.isBlank() || busy) return
+        input = ""
+        lastOrder = finalOrder
+        proposal = null
+        answerSource = null
+        fileError = null
+        chatError = null
+        messages = messages + ChatMsg(fromUser = true, text = finalOrder)
+        messages = messages + ChatMsg(fromUser = false, text = "…", thinking = true)
+        busy = true
+        scope.launch {
+            val intent = AiOperatorRouter.classify(finalOrder)
+            val result = try {
+                AiOperatorRouter.execute(context, intent) { stage ->
+                    withContext(Dispatchers.Main) {
+                        messages = messages.dropLast(1) + ChatMsg(fromUser = false, text = stage, thinking = true)
+                    }
+                }
+            } catch (e: Exception) {
+                "تعذر التنفيذ: ${e.message ?: "خطأ غير معروف"}"
+            }
+            withContext(Dispatchers.Main) {
+                messages = messages.dropLast(1) + ChatMsg(fromUser = false, text = result.take(2400))
+                busy = false
+            }
+        }
+    }
+
     fun send(order: String = input.trim()) {
         val finalOrder = order.trim()
         if (finalOrder.isBlank() || busy) return
+        if (opMode) { operatorSend(finalOrder); return }
         if (!fileLoaded) {
             Toast.makeText(context, "حمّل الملف أولاً", Toast.LENGTH_SHORT).show()
             return
@@ -295,7 +328,9 @@ fun AiEditorSection(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("مساعد التحرير", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         Text(
-                            if (fileLoaded) "$filePath • ${loadedFileContent.lines().size} سطر" else "اختر ملفاً ثم اامرني بالعربية",
+                            if (opMode) "وضع التشغيل • نفّذ أوامر حقيقية داخل التطبيق"
+                            else if (fileLoaded) "$filePath • ${loadedFileContent.lines().size} سطر"
+                            else "اختر ملفاً ثم اامرني بالعربية",
                             color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp, maxLines = 1
                         )
                     }
@@ -308,20 +343,36 @@ fun AiEditorSection(
                         }
                     }
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = filePath, onValueChange = { filePath = it },
-                        label = { Text("مسار الملف", fontSize = 11.sp) }, singleLine = true,
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OperatorModeTab(
+                        text = "تشغيل في التطبيق",
+                        selected = opMode,
+                        onClick = { opMode = true },
                         modifier = Modifier.weight(1f)
                     )
-                    Button(
-                        onClick = ::loadFile, enabled = !busy,
-                        colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = DeepSlate, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("تحميل", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OperatorModeTab(
+                        text = "تحرير الشيفرة",
+                        selected = !opMode,
+                        onClick = { opMode = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (!opMode) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = filePath, onValueChange = { filePath = it },
+                            label = { Text("مسار الملف", fontSize = 11.sp) }, singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = ::loadFile, enabled = !busy,
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = DeepSlate, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("تحميل", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -378,7 +429,7 @@ fun AiEditorSection(
                         modifier = Modifier.fillMaxWidth(0.82f)
                     ) {
                         Text(
-                            if (msg.thinking) "يكتب الآن..." else msg.text.take(1200),
+                            if (msg.thinking) "يكتب الآن..." else msg.text.take(2400),
                             color = if (msg.thinking) GoldPrimary else Color.White,
                             fontFamily = NotoSansFont, fontSize = 12.sp,
                             modifier = Modifier.padding(10.dp)
@@ -415,7 +466,7 @@ fun AiEditorSection(
                 onDismiss = { chatError = null }
             )
         }
-        if (proposal != null) {
+        if (proposal != null && !opMode) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardSurface),
                 shape = RoundedCornerShape(12.dp),
@@ -471,6 +522,23 @@ fun AiEditorSection(
             }
         }
 
+        if (opMode) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardSurface),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.25f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("أمثلة تُنفَّذ فعلاً:", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("• «افحص» — تشخيص حقيقي كامل للتطبيق والخدمات", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    Text("• «سكريبت عن الصبر» — يكتب سكريبتاً حقيقياً", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    Text("• «معلومات الجهاز» — تقرير فعلي بالذاكرة والتخزين", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                    Text("• أو اسألني أي سؤال حر", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
+                }
+            }
+        }
+
         // ── الإدخال ──
         Surface(
             color = CardSurface, shape = RoundedCornerShape(14.dp),
@@ -480,7 +548,7 @@ fun AiEditorSection(
             Row(modifier = Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = input, onValueChange = { input = it },
-                    placeholder = { Text("اامرني: اجعل... أضف... أصلح...", fontSize = 12.sp) },
+                    placeholder = { Text(if (opMode) "اطلب فعلاً: افحص… سكريبت عن… معلومات الجهاز…" else "اامرني: اجعل... أضف... أصلح...", fontSize = 12.sp) },
                     singleLine = false, maxLines = 3,
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
@@ -496,6 +564,34 @@ fun AiEditorSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OperatorModeTab(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = if (selected) GoldPrimary.copy(alpha = 0.18f) else Color(0xFF1E293B),
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) GoldPrimary else Color(0xFF334155)
+        ),
+        modifier = modifier.clickable { onClick() }
+    ) {
+        Text(
+            text = text,
+            color = if (selected) GoldPrimary else TextSecondary,
+            fontFamily = CairoFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        )
     }
 }
 
