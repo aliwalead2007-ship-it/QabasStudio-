@@ -234,18 +234,9 @@ jobs:
                 if [ $XDELTA_EXIT -eq 0 ] && [ -f "$PATCH_FILE" ] && [ -s "$PATCH_FILE" ]; then
                   PATCH_BYTES=$(stat -c%s "$PATCH_FILE")
                   PATCH_SIZE=$(du -h "$PATCH_FILE" | cut -f1)
-
-                  # ارفع الـ Delta فقط إذا كان أصغر من 70% من حجم الـ APK
-                  THRESHOLD=$(( APK_BYTES * 70 / 100 ))
-                  if [ "$PATCH_BYTES" -lt "$THRESHOLD" ]; then
-                    echo "✅ Delta patch created successfully: $PATCH_SIZE ($PATCH_BYTES bytes)"
-                    echo "   Savings: $(( (APK_BYTES - PATCH_BYTES) * 100 / APK_BYTES ))% smaller than full APK"
-                    IS_DELTA="true"
-                  else
-                    echo "⚠️ Delta too large ($PATCH_SIZE >= 70% of APK) — skipping delta upload"
-                    rm -f "$PATCH_FILE"
-                    IS_DELTA="false"
-                  fi
+                  echo "✅ Delta patch created successfully: $PATCH_SIZE ($PATCH_BYTES bytes)"
+                  echo "   Savings: $(( (APK_BYTES - PATCH_BYTES) * 100 / APK_BYTES ))% smaller than full APK"
+                  IS_DELTA="true"
                 else
                   echo "❌ xdelta3 failed (exit code: $XDELTA_EXIT)"
                   echo "   Will upload full APK only"
