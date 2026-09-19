@@ -104,6 +104,93 @@ data class ScheduledPublishItem(
 object SocialAccountManager {
 
     private const val PREFS_NAME = "qabas_social_accounts"
+    private const val KEY_CUSTOM_CHANNELS = "official_custom_channels"
+
+    /** المنصات الثابتة — تُحذف المخصصة فقط، الثابتة تُعدَّل روابطها. */
+    val FIXED_CHANNEL_IDS = setOf("youtube", "facebook", "instagram", "threads", "tiktok")
+
+    private fun officialKeyPrefix(id: String): String = when (id) {
+        "youtube" -> "yt"
+        "facebook" -> "fb"
+        "instagram" -> "insta"
+        "threads" -> "threads"
+        "tiktok" -> "tiktok"
+        else -> id
+    }
+
+    /** تحديث رابط/معرّف قناة ثابتة (للمطور فقط عبر الواجهة). */
+    fun updateOfficialChannel(context: Context, id: String, handle: String, url: String) {
+        val p = officialKeyPrefix(id)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString("official_${p}_handle", handle.trim())
+            .putString("official_${p}_url", url.trim())
+            .apply()
+    }
+
+    /** الروابط المخصصة التي أضافها المطور. */
+    fun getCustomChannels(context: Context): List<OfficialChannelInfo> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val json = prefs.getString(KEY_CUSTOM_CHANNELS, "[]") ?: "[]"
+        val list = mutableListOf<OfficialChannelInfo>()
+        try {
+            val arr = JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                list.add(
+                    OfficialChannelInfo(
+                        id = o.getString("id"),
+                        platformName = o.optString("platformName", "رابط"),
+                        handle = o.optString("handle", ""),
+                        displayName = o.optString("displayName", o.optString("platformName", "رابط")),
+                        description = o.optString("description", ""),
+                        url = o.getString("url"),
+                        followersDisplay = "رسمي ✦",
+                        badge = "رسمي ✦"
+                    )
+                )
+            }
+        } catch (_: Exception) { }
+        return list
+    }
+
+    /** إضافة/تعديل رابط مخصص (upsert حسب id). */
+    fun saveCustomChannel(context: Context, info: OfficialChannelInfo) {
+        if (info.id.isBlank() || info.url.isBlank()) return
+        val current = getCustomChannels(context).toMutableList()
+        val idx = current.indexOfFirst { it.id == info.id }
+        if (idx >= 0) current[idx] = info else current.add(info)
+        val arr = JSONArray()
+        for (c in current) {
+            arr.put(JSONObject().apply {
+                put("id", c.id)
+                put("platformName", c.platformName)
+                put("handle", c.handle)
+                put("displayName", c.displayName)
+                put("description", c.description)
+                put("url", c.url)
+            })
+        }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_CHANNELS, arr.toString()).apply()
+    }
+
+    fun deleteCustomChannel(context: Context, id: String) {
+        if (id in FIXED_CHANNEL_IDS) return
+        val remaining = getCustomChannels(context).filter { it.id != id }
+        val arr = JSONArray()
+        for (c in remaining) {
+            arr.put(JSONObject().apply {
+                put("id", c.id)
+                put("platformName", c.platformName)
+                put("handle", c.handle)
+                put("displayName", c.displayName)
+                put("description", c.description)
+                put("url", c.url)
+            })
+        }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_CHANNELS, arr.toString()).apply()
+    }
 
     fun getOfficialChannels(context: Context): List<OfficialChannelInfo> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -153,7 +240,7 @@ object SocialAccountManager {
                 url = prefs.getString("official_tiktok_url", "https://www.tiktok.com/@qabas_official") ?: "https://www.tiktok.com/@qabas_official",
                 followersDisplay = "استوديو رسمي ✦"
             )
-        )
+        ) + getCustomChannels(context)
     }
 
     fun openOfficialChannel(context: Context, url: String) {

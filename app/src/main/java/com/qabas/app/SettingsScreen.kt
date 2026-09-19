@@ -603,7 +603,28 @@ fun SettingsScreen(
             }
 
             // 4. Official Accounts Collapsible Section (الحسابات الرسمية)
-            val officialChannels = remember { SocialAccountManager.getOfficialChannels(context) }
+            // المستخدم العادي: عرض فقط. المطور: تعديل/إضافة/حذف.
+            val canManageChannels = isAdmin || isDevMode
+            var officialChannels by remember { mutableStateOf(SocialAccountManager.getOfficialChannels(context)) }
+            fun refreshChannels() {
+                officialChannels = SocialAccountManager.getOfficialChannels(context)
+            }
+            var channelDraftId by remember { mutableStateOf<String?>(null) } // null=مغلق، ""=جديد
+            var chPlatform by remember { mutableStateOf("") }
+            var chDisplay by remember { mutableStateOf("") }
+            var chHandle by remember { mutableStateOf("") }
+            var chUrl by remember { mutableStateOf("") }
+            var chDesc by remember { mutableStateOf("") }
+            var chUrlError by remember { mutableStateOf(false) }
+            fun openChannelEditor(c: OfficialChannelInfo?) {
+                channelDraftId = c?.id ?: ""
+                chPlatform = c?.platformName ?: ""
+                chDisplay = c?.displayName ?: ""
+                chHandle = c?.handle ?: ""
+                chUrl = c?.url ?: ""
+                chDesc = c?.description ?: ""
+                chUrlError = false
+            }
             CollapsibleSettingsCard(
                 title = Translator.tr("الحسابات الرسمية"),
                 icon = Icons.Default.Verified,
@@ -626,9 +647,111 @@ fun SettingsScreen(
                         },
                         onCopy = {
                             SocialAccountManager.copyToClipboard(context, channel.url, channel.platformName)
-                        }
+                        },
+                        showDevActions = canManageChannels,
+                        onEdit = { openChannelEditor(channel) },
+                        onDelete = if (channel.id !in SocialAccountManager.FIXED_CHANNEL_IDS) {
+                            {
+                                SocialAccountManager.deleteCustomChannel(context, channel.id)
+                                refreshChannels()
+                                Toast.makeText(context, "حُذف الرابط", Toast.LENGTH_SHORT).show()
+                            }
+                        } else null
                     )
                 }
+                if (canManageChannels) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { openChannelEditor(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.AddLink, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("إضافة رابط رسمي", color = GoldPrimary, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            // حوار إضافة/تعديل رابط (مطور فقط)
+            if (channelDraftId != null && canManageChannels) {
+                val editingId = channelDraftId!!
+                val isFixed = editingId in SocialAccountManager.FIXED_CHANNEL_IDS
+                AlertDialog(
+                    onDismissRequest = { channelDraftId = null },
+                    containerColor = CardSurface,
+                    title = { Text(if (editingId.isBlank()) "إضافة رابط رسمي" else "تعديل الرابط", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                    text = {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!isFixed) {
+                                OutlinedTextField(value = chPlatform, onValueChange = { chPlatform = it }, label = { Text("اسم المنصة", fontSize = 11.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(value = chDisplay, onValueChange = { chDisplay = it }, label = { Text("الاسم المعروض", fontSize = 11.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            }
+                            OutlinedTextField(value = chHandle, onValueChange = { chHandle = it }, label = { Text("المعرّف (handle)", fontSize = 11.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(
+                                value = chUrl, onValueChange = { chUrl = it; chUrlError = false },
+                                label = { Text("الرابط https://...", fontSize = 11.sp) }, singleLine = true,
+                                isError = chUrlError, modifier = Modifier.fillMaxWidth()
+                            )
+                            if (chUrlError) Text("أدخل رابطاً صالحاً يبدأ بـ http", color = Color(0xFFE53935), fontSize = 11.sp, fontFamily = CairoFont)
+                            if (!isFixed) {
+                                OutlinedTextField(value = chDesc, onValueChange = { chDesc = it }, label = { Text("الوصف (اختياري)", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val url = chUrl.trim()
+                                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                                    chUrlError = true
+                                    return@Button
+                                }
+                                if (editingId.isBlank()) {
+                                    val id = "custom_" + System.currentTimeMillis()
+                                    SocialAccountManager.saveCustomChannel(
+                                        context,
+                                        OfficialChannelInfo(
+                                            id = id,
+                                            platformName = chPlatform.trim().ifBlank { "رابط" },
+                                            handle = chHandle.trim(),
+                                            displayName = chDisplay.trim().ifBlank { chPlatform.trim().ifBlank { "رابط رسمي" } },
+                                            description = chDesc.trim(),
+                                            url = url
+                                        )
+                                    )
+                                    Toast.makeText(context, "أُضيف الرابط ✅", Toast.LENGTH_SHORT).show()
+                                } else if (isFixed) {
+                                    SocialAccountManager.updateOfficialChannel(context, editingId, chHandle, url)
+                                    Toast.makeText(context, "حُفظ التعديل ✅", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val old = officialChannels.firstOrNull { it.id == editingId }
+                                    if (old != null) {
+                                        SocialAccountManager.saveCustomChannel(
+                                            context,
+                                            old.copy(
+                                                platformName = chPlatform.trim().ifBlank { old.platformName },
+                                                displayName = chDisplay.trim().ifBlank { old.displayName },
+                                                handle = chHandle.trim(),
+                                                description = chDesc.trim(),
+                                                url = url
+                                            )
+                                        )
+                                        Toast.makeText(context, "حُفظ التعديل ✅", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                channelDraftId = null
+                                refreshChannels()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary)
+                        ) { Text("حفظ", color = DeepSlate, fontFamily = CairoFont, fontWeight = FontWeight.Bold) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { channelDraftId = null }) {
+                            Text("إلغاء", color = Color.Gray, fontFamily = CairoFont)
+                        }
+                    }
+                )
             }
 
             // 5. Social Media Accounts Collapsible Section (ربط المنصات الاجتماعية والنشر)
@@ -1286,7 +1409,10 @@ fun SocialAccountItem(platform: String, status: String, isLinked: Boolean, icon:
 fun OfficialAccountItem(
     channel: OfficialChannelInfo,
     onOpen: () -> Unit,
-    onCopy: () -> Unit
+    onCopy: () -> Unit,
+    showDevActions: Boolean = false,
+    onEdit: () -> Unit = {},
+    onDelete: (() -> Unit)? = null
 ) {
     val (icon, brandColor) = when (channel.id) {
         "youtube" -> Icons.Default.OndemandVideo to Color(0xFFFF0000)
@@ -1321,7 +1447,7 @@ fun OfficialAccountItem(
                         Icon(icon, contentDescription = null, tint = brandColor, modifier = Modifier.size(22.dp))
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 channel.displayName, 
@@ -1353,6 +1479,18 @@ fun OfficialAccountItem(
                             fontSize = 12.sp, 
                             fontWeight = FontWeight.Medium
                         )
+                    }
+                    if (showDevActions) {
+                        Row {
+                            IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Edit, contentDescription = "تعديل", tint = GoldPrimary, modifier = Modifier.size(16.dp))
+                            }
+                            if (onDelete != null) {
+                                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = Color(0xFFE53935), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
                     }
                 }
             }
