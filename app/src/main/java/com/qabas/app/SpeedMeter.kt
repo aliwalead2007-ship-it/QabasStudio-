@@ -10,6 +10,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -69,7 +71,7 @@ object SpeedMeter {
     }
 }
 
-/** عدّاد رقمي حديث بأرقام monospace يتحدث كل 6 ثوانٍ. */
+/** عدّاد رقمي حديث بأرقام monospace يتحدث كل ثانية. */
 @Composable
 fun DigitalSpeedCounter() {
     val context = LocalContext.current
@@ -85,21 +87,25 @@ fun DigitalSpeedCounter() {
                 sample = SpeedMeter.measure()
                 measuring = false
             }
-            kotlinx.coroutines.delay(6000)
+            kotlinx.coroutines.delay(1000)
         }
     }
 
     val accent = if (sample?.ok == true) Color(0xFF10B981) else Color(0xFFEF4444)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Surface(
         color = Color(0xFF0B0F19).copy(alpha = 0.6f),
         shape = RoundedCornerShape(10.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.5f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).widthIn(min = 92.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            Column(horizontalAlignment = Alignment.End) {
+            Text("⚡", fontSize = 18.sp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = if (measuring) "···" else sample?.let {
                         if (!it.ok || it.latencyMs < 0) "OFFLINE" else "${it.latencyMs} ms"
@@ -107,19 +113,20 @@ fun DigitalSpeedCounter() {
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
-                    color = accent
+                    color = accent,
+                    maxLines = 1
                 )
                 Text(
-                    text = if (measuring) "يقيس…" else sample?.let {
-                        if (!it.ok) "لا شبكة" else SpeedMeter.formatSpeed(it.downKbps)
+                    text = if (measuring) "…" else sample?.let {
+                        if (!it.ok) "—" else SpeedMeter.formatSpeed(it.downKbps)
                     } ?: "…",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
-                    color = TextSecondary
+                    color = TextSecondary,
+                    maxLines = 1
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("⚡", fontSize = 18.sp)
         }
+    }
     }
 }

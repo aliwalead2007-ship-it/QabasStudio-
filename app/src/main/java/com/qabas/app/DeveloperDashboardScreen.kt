@@ -432,7 +432,7 @@ fun DashboardMainGrid(
         val criticalCount = reports.count { it.severity == "حرج" }
         val improvementCount = reports.count { it.severity == "تحسين" }
         diagnosticSummary = if (criticalCount > 0) {
-            "$criticalCount مشاكل حرجة | $improvementCount تحسينات"
+            "$criticalCount حرجة | $improvementCount تحسينات"
         } else if (improvementCount > 0) {
             "الأنظمة مستقرة | $improvementCount تحسينات"
         } else {
@@ -516,12 +516,12 @@ fun DashboardMainGrid(
                     
                     // Quick Metrics
                     Row(
-                        modifier = Modifier.fillMaxWidth().background(DeepSlate, RoundedCornerShape(12.dp)).padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        modifier = Modifier.fillMaxWidth().background(DeepSlate, RoundedCornerShape(12.dp)).padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        QuickMetric(Icons.Default.MedicalServices, "حالة التطبيق", diagnosticSummary)
-                        QuickMetric(Icons.Default.CloudSync, "الشبكة", if (isGridOnline) "متصلة" else "منقطعة")
-                        QuickMetric(Icons.Default.Group, "المستخدمين", userCount.toString())
+                        Box(Modifier.weight(1f)) { QuickMetric(Icons.Default.MedicalServices, "حالة التطبيق", diagnosticSummary) }
+                        Box(Modifier.weight(1f)) { QuickMetric(Icons.Default.CloudSync, "الشبكة", if (isGridOnline) "متصلة" else "منقطعة") }
+                        Box(Modifier.weight(1f)) { QuickMetric(Icons.Default.Group, "المستخدمين", userCount.toString()) }
                     }
                 }
             }
@@ -645,11 +645,23 @@ private fun DashCard(quad: Quad) {
 
 @Composable
 fun QuickMetric(icon: ImageVector, title: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Icon(icon, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.height(4.dp))
-        Text(value, color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text(title, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 12.sp)
+        Text(
+            value, color = Color.White, fontFamily = TajawalFont, fontWeight = FontWeight.Bold,
+            fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            maxLines = 2, lineHeight = 16.sp,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            title, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
