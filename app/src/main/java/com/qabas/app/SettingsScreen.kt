@@ -74,6 +74,18 @@ fun SettingsScreen(
     var updateDoneMessage by remember { mutableStateOf("") }
     var updateActiveKey by remember { mutableStateOf<String?>(null) }
     var lastConsumedResult by remember { mutableStateOf<Triple<String, Boolean, String>?>(null) }
+    var cacheSizeBytes by remember { mutableStateOf<Long?>(null) }
+
+    // حجم المؤقتات — يُحسب مرة عند الفتح
+    LaunchedEffect(Unit) {
+        cacheSizeBytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                var total = 0L
+                context.cacheDir.walkTopDown().forEach { f -> if (f.isFile) total += f.length() }
+                total
+            }.getOrNull()
+        }
+    }
 
     // تقدّم حيّ من خدمة الخلفية — يبقى يعمل حتى لو غادرت الشاشة ورجعت
     LaunchedEffect(Unit) {
@@ -641,8 +653,25 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Card(
+                            modifier = Modifier.weight(1f).clickable { defaultQuality = "720p"; prefs.edit().putString("defaultQuality", "720p").apply() },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (defaultQuality == "720p") GoldPrimary.copy(alpha = 0.2f) else Color(0xFF151B2B)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.5.dp, if (defaultQuality == "720p") GoldPrimary else Color(0xFF2A3040))
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("720p", color = if (defaultQuality == "720p") GoldPrimary else Color.Gray, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = NotoSansFont)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(Translator.tr("خفيف 🪶"), color = if (defaultQuality == "720p") GoldPrimary else Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = CairoFont)
+                            }
+                        }
                         Card(
                             modifier = Modifier.weight(1f).clickable { defaultQuality = "1080p"; prefs.edit().putString("defaultQuality", "1080p").apply() },
                             colors = CardDefaults.cardColors(
@@ -1001,7 +1030,15 @@ fun SettingsScreen(
                                         }
                                         "done" -> updateDoneMessage.ifBlank { "أكمل التثبيت من شاشة النظام" }
                                         "checking..." -> "نقارن نسختك مع آخر إصدار على GitHub"
-                                        else -> "آخر فحص يقارن نسختك مع GitHub Releases"
+                                        else -> {
+                                            val last = prefs.getLong("update_last_check", 0)
+                                            if (last > 0) {
+                                                val fmt = java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault())
+                                                "آخر فحص: ${fmt.format(java.util.Date(last))}"
+                                            } else {
+                                                "آخر فحص يقارن نسختك مع GitHub Releases"
+                                            }
+                                        }
                                     },
                                     color = Color(0xFF94A3B8),
                                     fontFamily = NotoSansFont,
@@ -1416,6 +1453,7 @@ fun SettingsScreen(
                             }
                             total
                         }.getOrDefault(0L)
+                        cacheSizeBytes = 0L
                         val msg = "مُسحت الملفات المؤقتة (${UpdateManager.formatSize(freed)})"
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -1424,7 +1462,8 @@ fun SettingsScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("مسح الملفات المؤقتة 🧹", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+                val sizeLabel = cacheSizeBytes?.let { " (${UpdateManager.formatSize(it)})" } ?: ""
+                Text("مسح الملفات المؤقتة$sizeLabel 🧹", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
             }
 
             Button(

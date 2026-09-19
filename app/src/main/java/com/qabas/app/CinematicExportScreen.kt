@@ -1,5 +1,6 @@
 package com.qabas.app
 
+import android.content.Context
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -67,7 +68,18 @@ fun SaveShareScreen(
     val analyticsContext = LocalContext.current
     LaunchedEffect(Unit) { AppServices.getAnalyticsService(analyticsContext).logScreenView("CinematicExport") }
 
-    var selectedQualityOption by remember { mutableStateOf(VideoQualityOption.PRO_1080P) }
+    var selectedQualityOption by remember {
+        // الجودة الافتراضية من الإعدادات — أخيراً تُحترم بدل التثبيت على 1080p
+        val saved = analyticsContext.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+            .getString("defaultQuality", "1080p") ?: "1080p"
+        mutableStateOf(
+            when (saved) {
+                "720p" -> VideoQualityOption.FAST_720P
+                "4k" -> VideoQualityOption.CINEMATIC_4K
+                else -> VideoQualityOption.PRO_1080P
+            }
+        )
+    }
     var renderProgress by remember { mutableFloatStateOf(0f) }
     var currentLog by remember { mutableStateOf(Translator.tr("تهيئة محرك الريندر Qabas Engine v2.4...")) }
     val logs = remember { mutableStateListOf<String>() }
