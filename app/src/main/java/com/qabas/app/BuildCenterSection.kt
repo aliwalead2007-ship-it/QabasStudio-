@@ -826,14 +826,15 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                     val codeTools = CodeTools.definitions(CodeTools.Ctx(owner.trim(), repo.trim(), token.trim(), branch))
                                         .filter { t ->
                                             AgentPrefs.isToolEnabled(context, t.name) &&
-                                                (!dryRun || t.name in setOf("list_tree", "read_file", "build_status"))
+                                                (!dryRun || t.name in setOf("list_tree", "read_file", "build_status", "list_branches", "recent_commits", "list_prs", "pr_files", "list_issues"))
                                         }
                                     val task = (if (dryRun) "وضع محاكاة 🔍: لا تكتب شيئاً — افحص بأدوات القراءة واعرض خطة تنفيذ مرقمة فقط.\n" else "") + """
                                         أكمل بناء تطبيق العميل على الفرع $branch.
                                         الطلب: ${live.title} — ${live.description} (الهدف: ${live.goal}).
                                         الخطة: ${plan.take(2500)}
-                                        اعمل بأدواتك: افحص الشجرة أولاً، اقرأ الملفات الناقصة، اكتب/أصلح ما يلزم،
-                                        ثم شغّل البناء وتحقق من حالته، واختم بفتح سحب. لا تسأل — نفّذ.
+                                        اعمل بأدواتك: افحص الشجرة أولاً، اقرأ الملفات الناقصة، اكتب الجديد بـ write_file
+                                        وعدّل الموجود بـ update_file (لا تعيد إنشاءه)، وثّق العيوب بـ create_issue،
+                                        ثم شغّل البناء وتحقق من حالته، افتح سحباً، راجع ملفاته بـ pr_files، وادمجه بـ merge_pr. لا تسأل — نفّذ.
                                     """.trimIndent()
                                     val (summary, used) = OpenRouterService.chatWithTools(
                                         orKey, system, listOf(true to task), codeTools,

@@ -306,9 +306,45 @@ class GitHubRepoClient(
         }
     }
 
+    /** السحوبات المفتوحة/المغلقة — ليراجعها الوكيل قبل الدمج. */
+    suspend fun listPullRequests(state: String = "open"): List<String> =
+        get("/repos/$owner/$repo/pulls?state=$state&per_page=20") { raw ->
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                "#${o.optInt("number")} ${o.optString("title")} [${o.optJSONObject("head")?.optString("ref")}]"
+            }
+        } ?: emptyList()
+
+    /** ملفات سحب معين — ليراجع الوكيل الفرق قبل الدمج. */
+    suspend fun getPullFiles(number: Int): List<String> =
+        get("/repos/$owner/$repo/pulls/$number/files?per_page=30") { raw ->
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                "${o.optString("filename")} (+${o.optInt("additions")}/-${o.optInt("deletions")})"
+            }
+        } ?: emptyList()
+
+    /** فتح قضية — لتتبع المهام والعيوب من داخل الوكيل. */
+    suspend fun createIssue(title: String, body: String): Boolean {
+        if (title.isBlank()) return false
+        val obj = org.json.JSONObject().put("title", title.take(200)).put("body", body.take(4000))
+        return post("/repos/$owner/$repo/issues", obj.toString())
+    }
+
+    /** آخر القضايا المفتوحة. */
+    suspend fun listIssues(): List<String> =
+        get("/repos/$owner/$repo/issues?state=open&per_page=20") { raw ->
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                "#${o.optInt("number")} ${o.optString("title")}"
+            }
+        } ?: emptyList()
+
     /** اسم مستخدم صاحب الرمز (للتحقق من صلاحيته) — null عند الفشل. */
-    suspend fun getAuthUser(): String? = withContext(Dispatchers.IO) {
-        try {
+    suspend fun getAuthUser(): String? = withContext(Dispatchers.IO) {        try {
             val client = OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)

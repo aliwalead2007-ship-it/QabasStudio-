@@ -138,6 +138,117 @@ object CodeTools {
                     )
                     if (n != null && n > 0) "فُتح السحب #$n ✅" else "تعذر فتح السحب (قد يوجد واحد مفتوح)."
                 }
+            },
+            AiTools.ToolDef(
+                "update_file",
+                "تعديل ملف موجود على فرع العمل (يجلب sha تلقائياً). للملفات الجديدة استخدم write_file.",
+                JSONObject()
+                    .put("path", strProp("مسار الملف الكامل"))
+                    .put("content", strProp("المحتوى الكامل الجديد للملف"))
+                    .put("message", strProp("رسالة الـ commit القصيرة")),
+                listOf("path", "content")
+            ) { args ->
+                withContext(Dispatchers.IO) {
+                    val path = args.optString("path")
+                    val content = args.optString("content")
+                    val msg = args.optString("message").ifBlank { "وكيل قبس: تحديث $path" }
+                    if (path.isBlank() || content.isBlank()) return@withContext "مسار أو محتوى فارغ."
+                    if (".." in path || path.length > 200) return@withContext "مسار مرفوض."
+                    val sha = rc.getFileContent(path, ctx.branch)?.sha
+                        ?: return@withContext "الملف غير موجود على الفرع — استخدم write_file للإنشاء."
+                    val ok = rc.createFile(path, ctx.branch, msg, content, sha)
+                    if (ok) "حُدّث $path (${content.length} محرف) ✅" else "فشل تحديث $path."
+                }
+            },
+            AiTools.ToolDef(
+                "delete_file",
+                "حذف ملف من فرع العمل نهائياً — استخدمه بحذر.",
+                JSONObject()
+                    .put("path", strProp("مسار الملف الكامل"))
+                    .put("message", strProp("سبب الحذف")),
+                listOf("path")
+            ) { args ->
+                withContext(Dispatchers.IO) {
+                    val path = args.optString("path")
+                    if (path.isBlank() || ".." in path) return@withContext "مسار مرفوض."
+                    val sha = rc.getFileContent(path, ctx.branch)?.sha
+                        ?: return@withContext "الملف غير موجود أصلاً."
+                    val ok = rc.deleteFile(path, ctx.branch, args.optString("message").ifBlank { "وكيل قبس: حذف $path" }, sha)
+                    if (ok) "حُذف $path ✅" else "فشل حذف $path."
+                }
+            },
+            AiTools.ToolDef(
+                "list_branches",
+                "كل فروع المستودع — ليعرف الوكيل أين يعمل وأين دُمج.",
+                JSONObject(), emptyList()
+            ) { _ ->
+                withContext(Dispatchers.IO) {
+                    rc.getBranches()?.joinToString("\n") { it.name }?.ifBlank { "لا فروع." }
+                        ?: "تعذر جلب الفروع."
+                }
+            },
+            AiTools.ToolDef(
+                "recent_commits",
+                "آخر 10 commits على فرع العمل — سياق ما تم فعله.",
+                JSONObject(), emptyList()
+            ) { _ ->
+                withContext(Dispatchers.IO) {
+                    rc.getCommits(ctx.branch, 10)?.joinToString("\n") { "${it.sha.take(7)} ${it.message.take(80)}" }
+                        ?.ifBlank { "لا commits." } ?: "تعذر جلب السجل."
+                }
+            },
+            AiTools.ToolDef(
+                "list_prs",
+                "السحوبات المفتوحة — ليراجع الوكيل عمله قبل الدمج.",
+                JSONObject(), emptyList()
+            ) { _ ->
+                withContext(Dispatchers.IO) {
+                    rc.listPullRequests("open").joinToString("\n").ifBlank { "لا سحوبات مفتوحة." }
+                }
+            },
+            AiTools.ToolDef(
+                "pr_files",
+                "ملفات سحب معين مع حجم التغيير — للمراجعة قبل الدمج.",
+                JSONObject().put("number", strProp("رقم السحب")),
+                listOf("number")
+            ) { args ->
+                withContext(Dispatchers.IO) {
+                    val n = args.optString("number").toIntOrNull() ?: return@withContext "رقم غير صالح."
+                    rc.getPullFiles(n).joinToString("\n").ifBlank { "لا ملفات أو سحب غير موجود." }
+                }
+            },
+            AiTools.ToolDef(
+                "merge_pr",
+                "دمج سحب بعد مراجعة ملفاته — الخطوة الأخيرة قبل التسليم.",
+                JSONObject().put("number", strProp("رقم السحب")),
+                listOf("number")
+            ) { args ->
+                withContext(Dispatchers.IO) {
+                    val n = args.optString("number").toIntOrNull() ?: return@withContext "رقم غير صالح."
+                    if (rc.mergePullRequest(n)) "دُمج السحب #$n ✅" else "فشل الدمج — راجع الصلاحيات أو تعارضات الدمج."
+                }
+            },
+            AiTools.ToolDef(
+                "create_issue",
+                "فتح قضية لتتبع عيب أو مهمة اكتشفها الوكيل أثناء العمل.",
+                JSONObject()
+                    .put("title", strProp("عنوان القضية"))
+                    .put("body", strProp("وصف العيب أو المهمة")),
+                listOf("title")
+            ) { args ->
+                withContext(Dispatchers.IO) {
+                    if (rc.createIssue(args.optString("title"), args.optString("body"))) "فُتحت القضية ✅"
+                    else "تعذر فتح القضية."
+                }
+            },
+            AiTools.ToolDef(
+                "list_issues",
+                "القضايا المفتوحة — مهام بانتظار المعالجة.",
+                JSONObject(), emptyList()
+            ) { _ ->
+                withContext(Dispatchers.IO) {
+                    rc.listIssues().joinToString("\n").ifBlank { "لا قضايا مفتوحة 🎉" }
+                }
             }
         )
     }

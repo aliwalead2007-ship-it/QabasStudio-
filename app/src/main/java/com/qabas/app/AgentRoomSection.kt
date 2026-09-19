@@ -233,9 +233,18 @@ private fun ToolsTab(context: Context) {
         "list_tree" to "📁 تصفح الشجرة",
         "read_file" to "📖 قراءة ملف",
         "write_file" to "✏️ كتابة ملف",
+        "update_file" to "🔄 تعديل ملف موجود",
+        "delete_file" to "🗑️ حذف ملف",
+        "list_branches" to "🌿 قائمة الفروع",
+        "recent_commits" to "📜 آخر الـ commits",
         "trigger_build" to "🏗️ تشغيل البناء",
         "build_status" to "📊 حالة البناء",
         "create_pr" to "🔀 فتح سحب",
+        "list_prs" to "📥 السحوبات المفتوحة",
+        "pr_files" to "🔍 ملفات السحب",
+        "merge_pr" to "✅ دمج سحب",
+        "create_issue" to "🐞 فتح قضية",
+        "list_issues" to "📋 القضايا المفتوحة",
         "device_status" to "📱 حالة الجهاز",
         "diagnose" to "🩺 تشخيص شامل",
         "generate_script" to "🎬 توليد سكريبت",
@@ -305,7 +314,7 @@ private fun ToolsTab(context: Context) {
             }
         }
 
-        Text("مفاتيح الأدوات (11):", color = TextSecondary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("مفاتيح الأدوات (${allTools.size}):", color = TextSecondary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         allTools.forEach { tool ->
             val on = states[tool.name] == true
             Surface(
