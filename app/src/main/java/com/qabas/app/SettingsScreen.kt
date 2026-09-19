@@ -717,7 +717,8 @@ fun SettingsScreen(
                                             handle = chHandle.trim(),
                                             displayName = chDisplay.trim().ifBlank { chPlatform.trim().ifBlank { "رابط رسمي" } },
                                             description = chDesc.trim(),
-                                            url = url
+                                            url = url,
+                                            followersDisplay = "رسمي ✦"
                                         )
                                     )
                                     Toast.makeText(context, "أُضيف الرابط ✅", Toast.LENGTH_SHORT).show()
