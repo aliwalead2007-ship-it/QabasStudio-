@@ -152,6 +152,7 @@ fun AIAssistantScreen(
     var selectedSuggestionCategory by remember { mutableStateOf(suggestionCategories[0].id) }
     var selectedPresetIndex by remember { mutableIntStateOf(0) }
     val currentPreset = presets[selectedPresetIndex]
+    val prefs = remember { context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE) }
     // نموذج OpenRouter المختار (null = تلقائي) — يظهر فقط عند وجود المفتاح
     var selectedOrModel by remember { mutableStateOf<String?>(null) }
     val hasOrKey = remember {
@@ -180,7 +181,6 @@ fun AIAssistantScreen(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    val prefs = remember { context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE) }
     var hasGeminiKey by remember {
         val key = prefs.getString("gemini_key", "") ?: ""
         mutableStateOf(key.isNotBlank() && key != "YOUR_GEMINI_API_KEY")
@@ -418,6 +418,7 @@ fun AIAssistantScreen(
                             shape = RoundedCornerShape(20.dp)
                         )
                     }
+                    item {
                         FilterChip(
                             selected = selectedOrModel == null,
                             onClick = { selectedOrModel = null },
@@ -449,6 +450,7 @@ fun AIAssistantScreen(
                             shape = RoundedCornerShape(20.dp)
                         )
                     }
+                }
                 }
             }
 
@@ -829,10 +831,9 @@ fun AIAssistantScreen(
                 }
             }
         }
-    }
 
-    // System Instruction Customization Dialog
-    if (showSystemInstructionDialog) {
+        // System Instruction Customization Dialog
+        if (showSystemInstructionDialog) {
         AlertDialog(
             onDismissRequest = { showSystemInstructionDialog = false },
             title = {

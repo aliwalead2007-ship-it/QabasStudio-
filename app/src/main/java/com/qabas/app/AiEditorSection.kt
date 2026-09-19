@@ -499,7 +499,8 @@ fun AiEditorSection(
                     loadedFileContent = undo.content
                     if (!newSha.isNullOrBlank()) fileSha = newSha
                     lastUndo = null
-                    messages = messages + ChatMsg(fromUser = false, text = "تم التراجع عن آخر حفظ ✅")                    AuditLogger.log(context, "ai_edit_undo", "تراجع عن تعديل $filePath")
+                    messages = messages + ChatMsg(fromUser = false, text = "تم التراجع عن آخر حفظ ✅")
+                    AuditLogger.log(context, "ai_edit_undo", "تراجع عن تعديل $filePath")
                     onFileCommitted()
                 } else {
                     saveError = describeHttpFailure(saveCode, "save")

@@ -90,9 +90,9 @@ object AgentRunLog {
                 AgentRun(
                     time = o.optLong("time"),
                     title = o.optString("title"),
-                    tools = (0 until o.optJSONArray("tools")?.length() ?: 0).map { j ->
-                        o.optJSONArray("tools")?.optString(j) ?: ""
-                    }.filter { it.isNotBlank() },
+                    tools = o.optJSONArray("tools")
+                        ?.let { arr -> (0 until arr.length()).map { j -> arr.optString(j) } }
+                        ?.filter { it.isNotBlank() } ?: emptyList(),
                     summary = o.optString("summary"),
                     ok = o.optBoolean("ok"),
                     error = o.optString("error")

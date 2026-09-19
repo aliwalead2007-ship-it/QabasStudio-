@@ -686,7 +686,8 @@ private fun buildDeveloperReport(
 }
 
 @Composable
-private fun SeverityChip(label: String, count: Int, selected: Boolean, color: Color, onClick: () -> Unit) {    Surface(
+private fun SeverityChip(label: String, count: Int, selected: Boolean, color: Color, onClick: () -> Unit) {
+    Surface(
         modifier = Modifier.clickable(onClick = onClick),
         color = if (selected) color.copy(alpha = 0.22f) else Color(0xFF0D1320),
         shape = RoundedCornerShape(20.dp),
@@ -703,7 +704,9 @@ private fun SeverityChip(label: String, count: Int, selected: Boolean, color: Co
     }
 }
 
-private fun SeverityGroupHeader(severity: IssueSeverity, count: Int) {    val color = Color(severity.colorHex)
+@Composable
+private fun SeverityGroupHeader(severity: IssueSeverity, count: Int) {
+    val color = Color(severity.colorHex)
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically

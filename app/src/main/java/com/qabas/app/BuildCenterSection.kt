@@ -584,6 +584,7 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                         }
                     }
                     // الوضع الصامت 🔇: يعمل الوكيل دون أي رسالة للعميل (تُكسر عند التسليم)
+                    val reqPrefs = context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
                     fun isSilentNow(): Boolean =
                         reqPrefs.getBoolean("silent_${req.id}", false)
                     var silentMode by remember(req.id) { mutableStateOf(isSilentNow()) }
@@ -604,12 +605,12 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                         }
                     }
                     // ── 1) التسعير أولاً: لا عمل مجاني دون انتباه ──
-                    val reqPrefs = context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
                     // السعر محسوم فقط بقبول العميل (أو مجاني معتمد) — العرض وحده لا يفتح التوليد
                     fun isPricedNow(): Boolean {
                         val fresh = AppRequestService.getActiveBuildRequest(context)
                         return reqPrefs.getBoolean("priced_${req.id}", false) || fresh?.priceStatus == "accepted"
-                    }                    var priced by remember(req.id) { mutableStateOf(isPricedNow()) }
+                    }
+                    var priced by remember(req.id) { mutableStateOf(isPricedNow()) }
                     var showPriceDialog by remember { mutableStateOf(false) }
                     var priceDraft by remember(req.id) { mutableStateOf(if (req.cost > 0) req.cost.toString() else "") }
                     if (!priced) {

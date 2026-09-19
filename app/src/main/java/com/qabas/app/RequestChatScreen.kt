@@ -376,7 +376,7 @@ private fun SmartActionBar(
 ) {
     data class Action(val emoji: String, val title: String, val hint: String, val go: (() -> Unit)?)
 
-    val action: Action? = if (isAdmin) {
+    val action: Action = if (isAdmin) {
         when {
             req.status == "completed" -> Action("📁", "الطلب مغلق ✅", "سُلّم وأُغلق — لا خطوة مطلوبة", null)
             req.priceStatus != "accepted" -> Action(
