@@ -72,8 +72,50 @@ fun SettingsScreen(
     var updatePhase by remember { mutableStateOf<UpdateManager.Phase?>(null) }
     var updateHandle by remember { mutableStateOf<UpdateManager.DownloadHandle?>(null) }
     var updateDoneMessage by remember { mutableStateOf("") }
+    var updateActiveKey by remember { mutableStateOf<String?>(null) }
+    var lastConsumedResult by remember { mutableStateOf<Triple<String, Boolean, String>?>(null) }
 
-    // ── Developer Mode:叩 مخفي على نص الإصدار (7 مرات) ──
+    // تقدّم حيّ من خدمة الخلفية — يبقى يعمل حتى لو غادرت الشاشة ورجعت
+    LaunchedEffect(Unit) {
+        UpdateManager.downloadProgress.collect { p ->
+            if (p != null && updateState == "downloading" && updateActiveKey != null) {
+                updateProgress = p.percent
+                updateDownloadedBytes = p.bytesDownloaded
+                updateTotalBytes = p.totalBytes
+                updateSpeedBps = p.speedBytesPerSec
+                updatePhase = p.phase
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        UpdateManager.downloadResult.collect { r ->
+            if (r != null && r != lastConsumedResult && r.first == updateActiveKey && updateState == "downloading") {
+                lastConsumedResult = r
+                updateHandle = null
+                updateDoneMessage = r.third
+                updateState = when {
+                    r.second -> "done"
+                    r.third.contains("أُلغي") -> "found"
+                    else -> "error"
+                }
+            }
+        }
+    }
+
+    // بدء تنزيل عبر خدمة الخلفية (لا يتوقف إلا بالإلغاء أو الاكتمال)
+    fun beginServiceDownload(info: UpdateManager.UpdateInfo, forceFull: Boolean) {
+        updateActiveKey = "${info.versionName}|${info.versionCode}"
+        lastConsumedResult = null
+        updateState = "downloading"
+        updateProgress = 0
+        updateDownloadedBytes = 0L
+        updateTotalBytes = 0L
+        updateSpeedBps = 0L
+        updatePhase = null
+        UpdateDownloadService.start(context, info, forceFull)
+    }
+
+    // ── Developer Mode: مخفي على نص الإصدار (7 مرات) ──
     var devTapCount by remember { mutableIntStateOf(0) }
     var showPassphraseDialog by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
@@ -743,32 +785,7 @@ fun SettingsScreen(
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
-                                            updateInfo?.let { info ->
-                                                updateState = "downloading"
-                                                updateProgress = 0
-                                                updateDownloadedBytes = 0L
-                                                updateTotalBytes = 0L
-                                                updateSpeedBps = 0L
-                                                updatePhase = null
-                                                updateHandle = UpdateManager.downloadAndInstall(context, info,
-                                                    onProgress = { p ->
-                                                        updateProgress = p.percent
-                                                        updateDownloadedBytes = p.bytesDownloaded
-                                                        updateTotalBytes = p.totalBytes
-                                                        updateSpeedBps = p.speedBytesPerSec
-                                                        updatePhase = p.phase
-                                                    },
-                                                    onDone = { ok, msg ->
-                                                        updateHandle = null
-                                                        updateDoneMessage = msg
-                                                        updateState = when {
-                                                            ok -> "done"
-                                                            msg.contains("أُلغي") -> "found"
-                                                            else -> "error"
-                                                        }
-                                                    }
-                                                )
-                                            }
+                                            updateInfo?.let { info -> beginServiceDownload(info, false) }
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                                         shape = RoundedCornerShape(10.dp),
@@ -778,33 +795,7 @@ fun SettingsScreen(
                                     }
                                     Button(
                                         onClick = {
-                                            updateInfo?.let { info ->
-                                                updateState = "downloading"
-                                                updateProgress = 0
-                                                updateDownloadedBytes = 0L
-                                                updateTotalBytes = 0L
-                                                updateSpeedBps = 0L
-                                                updatePhase = null
-                                                updateHandle = UpdateManager.downloadAndInstall(context, info,
-                                            forceFull = true,
-                                                    onProgress = { p ->
-                                                        updateProgress = p.percent
-                                                        updateDownloadedBytes = p.bytesDownloaded
-                                                        updateTotalBytes = p.totalBytes
-                                                        updateSpeedBps = p.speedBytesPerSec
-                                                        updatePhase = p.phase
-                                                    },
-                                                    onDone = { ok, msg ->
-                                                        updateHandle = null
-                                                        updateDoneMessage = msg
-                                                        updateState = when {
-                                                            ok -> "done"
-                                                            msg.contains("أُلغي") -> "found"
-                                                            else -> "error"
-                                                        }
-                                                    }
-                                                )
-                                            }
+                                            updateInfo?.let { info -> beginServiceDownload(info, true) }
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
                                         shape = RoundedCornerShape(10.dp),
@@ -816,7 +807,10 @@ fun SettingsScreen(
                             }
                         } else if (updateState == "downloading") {
                             OutlinedButton(
-                                onClick = { updateHandle?.cancel() },
+                                onClick = {
+                                    updateHandle?.cancel()
+                                    UpdateDownloadService.cancel(context)
+                                },
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
@@ -836,32 +830,7 @@ fun SettingsScreen(
                         } else {
                             Button(
                                 onClick = {
-                                    updateInfo?.let { info ->
-                                        updateState = "downloading"
-                                        updateProgress = 0
-                                        updateDownloadedBytes = 0L
-                                        updateTotalBytes = 0L
-                                        updateSpeedBps = 0L
-                                        updatePhase = null
-                                        updateHandle = UpdateManager.downloadAndInstall(context, info,
-                                            onProgress = { p ->
-                                                updateProgress = p.percent
-                                                updateDownloadedBytes = p.bytesDownloaded
-                                                updateTotalBytes = p.totalBytes
-                                                updateSpeedBps = p.speedBytesPerSec
-                                                updatePhase = p.phase
-                                            },
-                                            onDone = { ok, msg ->
-                                                updateHandle = null
-                                                updateDoneMessage = msg
-                                                updateState = when {
-                                                    ok -> "done"
-                                                    msg.contains("أُلغي") -> "found"
-                                                    else -> "error"
-                                                }
-                                            }
-                                        )
-                                    }
+                                    updateInfo?.let { info -> beginServiceDownload(info, false) }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                                 shape = RoundedCornerShape(10.dp),

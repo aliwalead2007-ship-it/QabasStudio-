@@ -8,9 +8,14 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -32,6 +37,22 @@ object UpdateManager {
         .readTimeout(180, TimeUnit.SECONDS)
         .build()
 
+    /** بثّ حيّ للتقدم — تلتقطه الواجهة وخدمة الخلفية معاً. */
+    private val _downloadProgress = MutableStateFlow<DownloadProgress?>(null)
+    val downloadProgress: StateFlow<DownloadProgress?> = _downloadProgress.asStateFlow()
+
+    /** بثّ نتيجة التحميل: Triple(مفتاح النسخة، نجح؟، رسالة). */
+    private val _downloadResult = MutableStateFlow<Triple<String, Boolean, String>?>(null)
+    val downloadResult: StateFlow<Triple<String, Boolean, String>?> = _downloadResult.asStateFlow()
+
+    /** المقابض النشطة حسب مفتاح النسخة — للإلغاء الموحّد من أي مكان. */
+    private val activeHandles = ConcurrentHashMap<String, DownloadHandle>()
+
+    fun cancelDownload(key: String) {
+        activeHandles[key]?.cancel()
+    }
+
+    @Serializable
     data class UpdateInfo(
         val versionName: String,
         val versionCode: Int,
@@ -174,17 +195,28 @@ object UpdateManager {
         forceFull: Boolean = false
     ): DownloadHandle {
         val handle = DownloadHandle()
+        val key = "${update.versionName}|${update.versionCode}"
+        activeHandles[key] = handle
+        val emitProgress: (DownloadProgress) -> Unit = { p ->
+            _downloadProgress.value = p
+            onProgress(p)
+        }
+        val emitDone: (Boolean, String) -> Unit = { ok, msg ->
+            activeHandles.remove(key)
+            _downloadResult.value = Triple(key, ok, msg)
+            onDone(ok, msg)
+        }
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
 
                 if (!forceFull && !update.deltaUrl.isNullOrBlank() && update.deltaSize > 0) {
                     Log.d(TAG, "Trying delta (${formatSize(update.deltaSize)})…")
-                    val patched = tryDeltaUpdate(context, update, updatesDir, authToken, handle, onProgress)
+                    val patched = tryDeltaUpdate(context, update, updatesDir, authToken, handle, emitProgress)
                     if (patched != null && patched.exists() && patched.length() > 1_000_000) {
                         withContext(Dispatchers.Main) {
                             launchInstaller(context, patched)
-                            onDone(
+                            emitDone(
                                 true,
                                 "تحديث صغير ${update.versionName} (${formatSize(update.deltaSize)} بدل ${formatSize(update.apkSize)})"
                             )
@@ -203,7 +235,7 @@ object UpdateManager {
                     "qabas-${update.versionName}.apk", authToken, handle
                 ) { bytes, total, speed ->
                     val pct = if (total > 0) (bytes * 100 / total).toInt().coerceIn(0, 100) else 0
-                    onProgress(DownloadProgress(pct, bytes, total, Phase.DOWNLOADING_FULL, speed))
+                    emitProgress(DownloadProgress(pct, bytes, total, Phase.DOWNLOADING_FULL, speed))
                 }
 
                 if (handle.cancelled) throw DownloadCancelledException()
@@ -211,16 +243,16 @@ object UpdateManager {
                 if (apkFile != null && apkFile.exists() && apkFile.length() > 1_000_000) {
                     withContext(Dispatchers.Main) {
                         launchInstaller(context, apkFile)
-                        onDone(true, "تم تحميل ${update.versionName} (${formatSize(update.apkSize)})")
+                        emitDone(true, "تم تحميل ${update.versionName} (${formatSize(update.apkSize)})")
                     }
                 } else {
-                    withContext(Dispatchers.Main) { onDone(false, "فشل تحميل التحديث") }
+                    withContext(Dispatchers.Main) { emitDone(false, "فشل تحميل التحديث") }
                 }
             } catch (e: DownloadCancelledException) {
-                withContext(Dispatchers.Main) { onDone(false, "أُلغي التحديث") }
+                withContext(Dispatchers.Main) { emitDone(false, "أُلغي التحديث") }
             } catch (e: Exception) {
                 Log.e(TAG, "downloadAndInstall: ${e.message}", e)
-                withContext(Dispatchers.Main) { onDone(false, "خطأ: ${e.message}") }
+                withContext(Dispatchers.Main) { emitDone(false, "خطأ: ${e.message}") }
             }
         }
         return handle
