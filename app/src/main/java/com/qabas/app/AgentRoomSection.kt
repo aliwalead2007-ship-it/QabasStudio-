@@ -42,9 +42,6 @@ object AgentPrefs {
         context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
             .getBoolean(toolKey(name), true)
 
-    fun enabledCodeTools(context: Context, ctx: CodeTools.Ctx): List<AiTools.ToolDef> =
-        CodeTools.definitions(ctx).filter { isToolEnabled(context, it.name) }
-
     fun maxTurns(context: Context): Int =
         context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
             .getInt(MAX_TURNS, 6).coerceIn(1, 10)

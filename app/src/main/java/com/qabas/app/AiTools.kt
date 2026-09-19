@@ -33,7 +33,7 @@ object AiTools {
             properties = JSONObject(),
             required = emptyList()
         ) { _ ->
-            AiOperatorRouter.execute(context, OperatorIntent(OperatorKind.STATUS, "")) { }
+            AiOperatorRouter.execute(context, OperatorIntent(OperatorKind.STATUS, "")) { _ -> }
         },
         ToolDef(
             name = "diagnose",
@@ -41,7 +41,7 @@ object AiTools {
             properties = JSONObject(),
             required = emptyList()
         ) { _ ->
-            AiOperatorRouter.execute(context, OperatorIntent(OperatorKind.DIAGNOSE, "")) { }
+            AiOperatorRouter.execute(context, OperatorIntent(OperatorKind.DIAGNOSE, "")) { _ -> }
         },
         ToolDef(
             name = "generate_script",
@@ -50,7 +50,7 @@ object AiTools {
             required = listOf("topic")
         ) { args ->
             val topic = args.optString("topic").ifBlank { "موضوع عام" }
-            AiOperatorRouter.execute(context, OperatorIntent(OperatorKind.SCRIPT, topic, topic)) { }
+            AiOperatorRouter.execute(context, OperatorIntent(OperatorKind.SCRIPT, topic, topic)) { _ -> }
         },
         ToolDef(
             name = "search_quran",

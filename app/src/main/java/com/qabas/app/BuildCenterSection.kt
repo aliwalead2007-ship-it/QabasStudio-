@@ -820,13 +820,6 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                 if (base != null && (rc.createBranch(branch, base) || rc.getBranchSha(branch) != null)) {
                                     val plan = live.generatedPrompts?.takeIf { it.isNotBlank() }
                                         ?: LocalPromptPlanner.generatePlan(live)
-                                    val task = """
-                                        أكمل بناء تطبيق العميل على الفرع $branch.
-                                        الطلب: ${live.title} — ${live.description} (الهدف: ${live.goal}).
-                                        الخطة: ${plan.take(2500)}
-                                        اعمل بأدواتك: افحص الشجرة أولاً، اقرأ الملفات الناقصة، اكتب/أصلح ما يلزم،
-                                        ثم شغّل البناء وتحقق من حالته، واختم بفتح سحب. لا تسأل — نفّذ.
-                                    """.trimIndent()
                                     val system = "أنت وكيل بناء تطبيقات أندرويد. تعمل بأدوات GitHub فقط، خطوة بخطوة، وتختم بملخص عربي قصير لما فعلته."
                                     // من غرفة الوكيل: الأدوات المفعّلة + النموذج + حد الجولات + المحاكاة
                                     val dryRun = AgentPrefs.isDryRun(context)
