@@ -24,17 +24,16 @@ import kotlinx.coroutines.launch
 /**
  * «غرفة الوكيل 🤖» — تجهيز احترافي قبل التشغيل:
  * 1) شاشة المطلوبات: فحص حي لكل شرط (مفتاح/رمز/طلب/سعر/مستودع) مع زر إصلاح.
- * 2) شاشة الأدوات: مفاتيح تشغيل لكل أداة + نموذج + حد الجولات + وضع المحاكاة.
+ * 2) شاشة الأدوات: مفاتيح تشغيل لكل أداة + نموذج + حد الجولات + إصلاح تلقائي.
+ * 3) سجل الوكيل: الصندوق الأسود — كل تشغيل موثّق والفشل يظهر بنص الخطأ.
  *
  * إضافات القوة والدقة:
- * -dry-run: الوكيل يخطط فقط بلا كتابة (يستخدم أدوات القراءة حصراً).
  * - حد الجولات 1-10: يمنع الحلقات المكلفة.
  * - إصلاح تلقائي عند فشل البناء: الوكيل يقرأ الحالة ويعيد المحاولة.
  */
 object AgentPrefs {
     const val MODEL = "agent_model"
     const val MAX_TURNS = "agent_max_turns"
-    const val DRY_RUN = "agent_dry_run"
     const val AUTO_FIX = "agent_auto_fix"
     fun toolKey(name: String) = "tool_enabled_$name"
 
@@ -45,10 +44,6 @@ object AgentPrefs {
     fun maxTurns(context: Context): Int =
         context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
             .getInt(MAX_TURNS, 6).coerceIn(1, 10)
-
-    fun isDryRun(context: Context): Boolean =
-        context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
-            .getBoolean(DRY_RUN, false)
 
     fun isAutoFix(context: Context): Boolean =
         context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
@@ -78,13 +73,16 @@ fun AgentRoomSection(onJumpBuildCenter: () -> Unit = {}, onJumpKeys: () -> Unit 
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterTabRow(
-            tabs = listOf("✅ المطلوبات", "🛠️ الأدوات"),
+            tabs = listOf("✅ المطلوبات", "🛠️ الأدوات", "📜 السجل"),
             selected = tab,
             onSelect = { tab = it }
         )
         Spacer(modifier = Modifier.height(10.dp))
-        if (tab == 0) RequirementsTab(context, scope, onJumpBuildCenter, onJumpKeys)
-        else ToolsTab(context)
+        when (tab) {
+            0 -> RequirementsTab(context, scope, onJumpBuildCenter, onJumpKeys)
+            1 -> ToolsTab(context)
+            else -> RunsTab(context)
+        }
     }
 }
 
@@ -226,7 +224,6 @@ private fun ToolsTab(context: Context) {
     var states by remember { mutableStateOf(allTools.associate { it.name to AgentPrefs.isToolEnabled(context, it.name) }) }
     var model by remember { mutableStateOf(AgentPrefs.model(context)) }
     var maxTurns by remember { mutableStateOf(AgentPrefs.maxTurns(context).toFloat()) }
-    var dryRun by remember { mutableStateOf(AgentPrefs.isDryRun(context)) }
     var autoFix by remember { mutableStateOf(AgentPrefs.isAutoFix(context)) }
 
     val arabicNames = mapOf(
@@ -287,19 +284,6 @@ private fun ToolsTab(context: Context) {
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("🔍 وضع المحاكاة", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("يخطط فقط بأدوات القراءة — بلا كتابة", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
-                    }
-                    Switch(
-                        checked = dryRun,
-                        onCheckedChange = {
-                            dryRun = it
-                            prefs.edit().putBoolean(AgentPrefs.DRY_RUN, it).apply()
-                        }
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
                         Text("🔧 إصلاح تلقائي عند فشل البناء", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         Text("يقرأ الحالة ويعيد المحاولة وحده", color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp)
                     }
@@ -340,6 +324,106 @@ private fun ToolsTab(context: Context) {
                         }
                     )
                 }
+            }
+        }
+    }
+}
+
+/** تبويب «📜 السجل» — الصندوق الأسود: كل تشغيل + نص الخطأ عند الفشل. */
+@Composable
+private fun RunsTab(context: Context) {
+    var runs by remember { mutableStateOf(AgentRunLog.load(context)) }
+    var expanded by remember { mutableStateOf<Long?>(null) }
+    val okCount = runs.count { it.ok }
+    val failCount = runs.size - okCount
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        CenterHeaderCard(
+            badge = "${runs.size}",
+            title = "سجل تشغيل الوكيل",
+            subtitle = if (runs.isEmpty()) "لم يعمل الوكيل بعد"
+            else "✅ $okCount ناجح • ❌ $failCount فاشل — الفشل يُكتب أيضاً في سجل الانهيارات",
+            accent = if (failCount > 0) Color(0xFFEF4444) else Color(0xFF10B981),
+            actionLabel = if (runs.isEmpty()) null else "🗑️ مسح",
+            onAction = if (runs.isEmpty()) null else {
+                {
+                    AgentRunLog.clear(context)
+                    runs = emptyList()
+                    expanded = null
+                }
+            }
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        if (runs.isEmpty()) {
+            Surface(
+                color = CardSurface, shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "شغّل الوكيل من مركز البناء وستُوثَّق هنا كل جولة: الأدوات المستخدمة والملخص، وأي خطأ بنصه الكامل.",
+                    color = TextSecondary, fontFamily = NotoSansFont, fontSize = 12.sp,
+                    modifier = Modifier.padding(14.dp), lineHeight = 18.sp
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                runs.forEach { r ->
+                    val color = if (r.ok) Color(0xFF10B981) else Color(0xFFEF4444)
+                    Surface(
+                        color = CardSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { expanded = if (expanded == r.time) null else r.time }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(12.dp).background(color, CircleShape)) {}
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        (if (r.ok) "✅ " else "❌ ") + r.title,
+                                        color = Color.White, fontFamily = CairoFont,
+                                        fontWeight = FontWeight.Bold, fontSize = 12.sp
+                                    )
+                                    Text(
+                                        java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.US)
+                                            .format(java.util.Date(r.time)) +
+                                            (if (r.tools.isNotEmpty()) " • 🛠️ ${r.tools.joinToString("، ")}" else ""),
+                                        color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp
+                                    )
+                                }
+                            }
+                            if (expanded == r.time) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                if (r.summary.isNotBlank()) {
+                                    Text("الملخص:", color = GoldPrimary, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text(r.summary, color = Color.White, fontFamily = NotoSansFont, fontSize = 11.sp, lineHeight = 16.sp)
+                                }
+                                if (!r.ok && r.error.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("الخطأ:", color = Color(0xFFEF4444), fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Surface(color = Color(0xFF0B0F19), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            r.error, color = Color(0xFFFCA5A5),
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            fontSize = 10.sp, modifier = Modifier.padding(8.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "نُسخة من هذا الخطأ محفوظة في «سجل الانهيارات» باسم agent_*.txt",
+                                        color = TextSecondary, fontFamily = NotoSansFont, fontSize = 10.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

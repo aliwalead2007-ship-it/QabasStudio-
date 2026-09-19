@@ -821,14 +821,10 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                     val plan = live.generatedPrompts?.takeIf { it.isNotBlank() }
                                         ?: LocalPromptPlanner.generatePlan(live)
                                     val system = "أنت وكيل بناء تطبيقات أندرويد. تعمل بأدوات GitHub فقط، خطوة بخطوة، وتختم بملخص عربي قصير لما فعلته."
-                                    // من غرفة الوكيل: الأدوات المفعّلة + النموذج + حد الجولات + المحاكاة
-                                    val dryRun = AgentPrefs.isDryRun(context)
+                                    // من غرفة الوكيل: الأدوات المفعّلة + النموذج + حد الجولات
                                     val codeTools = CodeTools.definitions(CodeTools.Ctx(owner.trim(), repo.trim(), token.trim(), branch))
-                                        .filter { t ->
-                                            AgentPrefs.isToolEnabled(context, t.name) &&
-                                                (!dryRun || t.name in setOf("list_tree", "read_file", "build_status", "list_branches", "recent_commits", "list_prs", "pr_files", "list_issues"))
-                                        }
-                                    val task = (if (dryRun) "وضع محاكاة 🔍: لا تكتب شيئاً — افحص بأدوات القراءة واعرض خطة تنفيذ مرقمة فقط.\n" else "") + """
+                                        .filter { t -> AgentPrefs.isToolEnabled(context, t.name) }
+                                    val task = """
                                         أكمل بناء تطبيق العميل على الفرع $branch.
                                         الطلب: ${live.title} — ${live.description} (الهدف: ${live.goal}).
                                         الخطة: ${plan.take(2500)}
@@ -836,20 +832,31 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                         وعدّل الموجود بـ update_file (لا تعيد إنشاءه)، وثّق العيوب بـ create_issue،
                                         ثم شغّل البناء وتحقق من حالته، افتح سحباً، راجع ملفاته بـ pr_files، وادمجه بـ merge_pr. لا تسأل — نفّذ.
                                     """.trimIndent()
-                                    val (summary, used) = OpenRouterService.chatWithTools(
-                                        orKey, system, listOf(true to task), codeTools,
-                                        AgentPrefs.model(context), AgentPrefs.maxTurns(context)
-                                    )
-                                    withContext(Dispatchers.Main) {
-                                        agentRunning = false
-                                        agentReport = if (used.isEmpty() && summary.isBlank()) {
-                                            "تعذر تشغيل الوكيل — تحقق من المفتاح والرمز."
-                                        } else {
-                                            "🤖 أدوات مستخدمة: ${used.joinToString("، ")}\n$summary"
+                                    try {
+                                        val (summary, used) = OpenRouterService.chatWithTools(
+                                            orKey, system, listOf(true to task), codeTools,
+                                            AgentPrefs.model(context), AgentPrefs.maxTurns(context)
+                                        )
+                                        AgentRunLog.record(context, live.title, used, summary, used.isNotEmpty() || summary.isNotBlank())
+                                        withContext(Dispatchers.Main) {
+                                            agentRunning = false
+                                            agentReport = if (used.isEmpty() && summary.isBlank()) {
+                                                "تعذر تشغيل الوكيل — تحقق من المفتاح والرمز."
+                                            } else {
+                                                "🤖 أدوات مستخدمة: ${used.joinToString("، ")}\n$summary"
+                                            }
+                                            AuditLogger.log(context, "code_agent", "وكيل ${live.title}: ${used.joinToString(",")}")
+                                            Toast.makeText(context, "انتهى الوكيل — راجع التقرير", Toast.LENGTH_LONG).show()
+                                            refreshAll()
                                         }
-                                        AuditLogger.log(context, "code_agent", "وكيل ${live.title}: ${used.joinToString(",")}")
-                                        Toast.makeText(context, "انتهى الوكيل — راجع التقرير", Toast.LENGTH_LONG).show()
-                                        refreshAll()
+                                    } catch (e: Exception) {
+                                        val err = "${e.javaClass.simpleName}: ${e.message}"
+                                        AgentRunLog.record(context, live.title, emptyList(), "", false, err)
+                                        withContext(Dispatchers.Main) {
+                                            agentRunning = false
+                                            agentReport = "❌ تعطل الوكيل: $err\nسُجّل في «غرفة الوكيل ← السجل» وسجل الانهيارات."
+                                            Toast.makeText(context, "تعطل الوكيل — راجع السجل", Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 } else {
                                     withContext(Dispatchers.Main) {
