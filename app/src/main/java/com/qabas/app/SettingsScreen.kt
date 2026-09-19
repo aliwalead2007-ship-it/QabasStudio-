@@ -70,7 +70,6 @@ fun SettingsScreen(
     var updateTotalBytes by remember { mutableStateOf(0L) }
     var updateSpeedBps by remember { mutableStateOf(0L) }
     var updatePhase by remember { mutableStateOf<UpdateManager.Phase?>(null) }
-    var updateHandle by remember { mutableStateOf<UpdateManager.DownloadHandle?>(null) }
     var updateDoneMessage by remember { mutableStateOf("") }
     var updateActiveKey by remember { mutableStateOf<String?>(null) }
     var lastConsumedResult by remember { mutableStateOf<Triple<String, Boolean, String>?>(null) }
@@ -91,7 +90,6 @@ fun SettingsScreen(
         UpdateManager.downloadResult.collect { r ->
             if (r != null && r != lastConsumedResult && r.first == updateActiveKey && updateState == "downloading") {
                 lastConsumedResult = r
-                updateHandle = null
                 updateDoneMessage = r.third
                 updateState = when {
                     r.second -> "done"
@@ -115,16 +113,37 @@ fun SettingsScreen(
         UpdateDownloadService.start(context, info, forceFull)
     }
 
+    // فحص تلقائي عند فتح الإعدادات (يحترم كاش الـ 6 ساعات — لا يزعج المستخدم)
+    LaunchedEffect(Unit) {
+        if (updateState == null) {
+            updateState = "checking..."
+            runCatching {
+                val info = UpdateManager.checkForUpdate(context)
+                if (info != null) {
+                    updateInfo = info
+                    updateState = "found"
+                    context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+                        .edit().putString("last_release_notes", info.releaseNotes).apply()
+                } else {
+                    updateState = null
+                }
+            }.onFailure {
+                updateState = null
+            }
+        }
+    }
+
     // ── Developer Mode: مخفي على نص الإصدار (7 مرات) ──
     var devTapCount by remember { mutableIntStateOf(0) }
     var showPassphraseDialog by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
     var passphraseError by remember { mutableStateOf(false) }
-    val isDevMode = remember {
-        context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
-            .getBoolean("is_developer", false)
+    var isDevMode by remember {
+        mutableStateOf(
+            context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+                .getBoolean("is_developer", false)
+        )
     }
-
     if (linkDialogState != null && selectedPlatform != null) {
         AlertDialog(
             onDismissRequest = { if (!isLinking) linkDialogState = null },
@@ -699,6 +718,7 @@ fun SettingsScreen(
                                 if (info != null) {
                                     updateInfo = info
                                     updateState = "found"
+                                    prefs.edit().putString("last_release_notes", info.releaseNotes).apply()
                                 } else {
                                     updateState = "none"
                                 }
@@ -808,7 +828,6 @@ fun SettingsScreen(
                         } else if (updateState == "downloading") {
                             OutlinedButton(
                                 onClick = {
-                                    updateHandle?.cancel()
                                     UpdateDownloadService.cancel(context)
                                 },
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
@@ -823,6 +842,14 @@ fun SettingsScreen(
                             Text(
                                 text = if (updateState == "error") "إعادة المحاولة" else "فحص",
                                 color = updateAccent,
+                                fontFamily = CairoFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else if (updateState == "done") {
+                            Text(
+                                text = updateDoneMessage.ifBlank { "اكتمل التنزيل — أكمل التثبيت من شاشة النظام" },
+                                color = Color(0xFF10B981),
                                 fontFamily = CairoFont,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -1011,12 +1038,16 @@ fun SettingsScreen(
                     },
                     text = {
                         Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("أبرز ما تم إنجازه في إصدار v1.2.0 (Build 2):", color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("• فحص حقيقي شبكي فوري لكافة مفاتيح API مع تشخيص تفصيلي للأخطاء.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
-                            Text("• تفعيل محرك StyleBrain الإخراجي مع الامتصاص البصري وفلاتر المونتاج الحقيقية.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
-                            Text("• دعم توليد ومعاينة التعليق الصوتي الحقيقي عبر ElevenLabs و Azure Speech.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
-                            Text("• تصدير فيديو حقيقي عبر FFmpeg Kit Full بدقة 1080p و 4K وتسريع العتاد.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
-                            Text("• جاهزية تامة للأجهزة ومؤشر الجاهزية التشغيلية (Readiness Score).", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+                            Text(
+                                "إصدار v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE}):",
+                                color = Color.White, fontFamily = CairoFont, fontWeight = FontWeight.Bold, fontSize = 13.sp
+                            )
+                            val savedNotes = prefs.getString("last_release_notes", "").orEmpty()
+                            if (savedNotes.isNotBlank()) {
+                                Text(savedNotes.take(800), color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+                            } else {
+                                Text("افحص التحديثات من بطاقة التحديثات بالأعلى لعرض أحدث الملاحظات.", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+                            }
                         }
                     },
                     confirmButton = {
@@ -1104,24 +1135,42 @@ fun SettingsScreen(
                     confirmButton = {
                         Button(
                             onClick = {
-                                // كلمة المرور السرية: hash مبسط
-                                val correctHash = "d3b07384d113edec49eaa6238ad5ff00" // md5("qabas_dev_2024")
-                                val inputHash = passphraseInput.toByteArray().let { bytes ->
-                                    java.security.MessageDigest.getInstance("MD5")
-                                        .digest(bytes)
-                                        .joinToString("") { "%02x".format(it) }
+                                // بوابة ردع محلية فقط: أي سر داخل APK قابل للاستخراج بالتفكيك.
+                                // SHA-256 مملّح + حد محاولات — لا يغني عن تحقق خادم حقيقي.
+                                val devPrefs = context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+                                val lockedUntil = devPrefs.getLong("dev_unlock_locked_until", 0)
+                                if (System.currentTimeMillis() < lockedUntil) {
+                                    Toast.makeText(context, "محاولات كثيرة — انتظر قليلاً ثم أعد المحاولة", Toast.LENGTH_SHORT).show()
+                                    return@Button
                                 }
-                                if (inputHash == correctHash) {
+                                val salt = "Qbs" + "::DevGate::" + "v1"
+                                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                                    .digest((passphraseInput + salt).toByteArray())
+                                    .joinToString("") { "%02x".format(it) }
+                                // البصمة مجزأة عمداً حتى لا تظهر كسلسلة واحدة في ثنائية التطبيق
+                                val expected = "284308ac" + "cd46b74003578263" + "92758c1e0d189e543" + "43d3777156a550cbb123bfa"
+                                if (digest == expected) {
                                     // فعّل وضع المطور
-                                    context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
-                                        .edit()
+                                    devPrefs.edit()
                                         .putBoolean("is_developer", true)
+                                        .remove("dev_unlock_attempts")
+                                        .remove("dev_unlock_locked_until")
                                         .apply()
+                                    isDevMode = true
                                     showPassphraseDialog = false
                                     passphraseInput = ""
                                     Toast.makeText(context, "تم تفعيل وضع المطور! 🛠️", Toast.LENGTH_LONG).show()
                                 } else {
-                                    passphraseError = true
+                                    val attempts = devPrefs.getInt("dev_unlock_attempts", 0) + 1
+                                    val edit = devPrefs.edit().putInt("dev_unlock_attempts", attempts)
+                                    if (attempts >= 5) {
+                                        edit.putLong("dev_unlock_locked_until", System.currentTimeMillis() + 5 * 60 * 1000L)
+                                        edit.putInt("dev_unlock_attempts", 0)
+                                        Toast.makeText(context, "تجاوزت المحاولات — قُفل لـ 5 دقائق", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        passphraseError = true
+                                    }
+                                    edit.apply()
                                     passphraseInput = ""
                                 }
                             },
@@ -1144,6 +1193,30 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
+                onClick = {
+                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val freed = runCatching {
+                            var total = 0L
+                            context.cacheDir.walkTopDown().forEach { f ->
+                                if (f.isFile) {
+                                    total += f.length()
+                                    f.delete()
+                                }
+                            }
+                            total
+                        }.getOrDefault(0L)
+                        val msg = "مُسحت الملفات المؤقتة (${UpdateManager.formatSize(freed)})"
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("مسح الملفات المؤقتة 🧹", color = TextSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+            }
 
             Button(
                 onClick = onLogout,
