@@ -505,6 +505,9 @@ fun DashboardMainGrid(
                                         fontSize = 12.sp
                                     )
                                 }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                // عدّاد سرعة رقمي حي ⚡ (قياس حقيقي: ping + تحميل)
+                                DigitalSpeedCounter()
                             }
                         }
                     }
