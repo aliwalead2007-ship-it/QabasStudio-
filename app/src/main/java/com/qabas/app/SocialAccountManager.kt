@@ -268,6 +268,86 @@ object SocialAccountManager {
         android.widget.Toast.makeText(context, "تم نسخ $label بنجاح! 📋", android.widget.Toast.LENGTH_SHORT).show()
     }
 
+    /** نتيجة التحقق الحقيقي من الحساب. */
+    enum class VerifyResult { EXISTS, MISSING, UNKNOWN }
+
+    private val verifyClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+    }
+
+    /** رابط الملف العام للحساب حسب المنصة (يُستخدم للتحقق والعرض). */
+    fun publicProfileUrl(platformId: String, handle: String): String? {
+        val h = handle.trim().removePrefix("@")
+        if (h.isBlank()) return null
+        return when (platformId) {
+            "youtube" -> "https://www.youtube.com/@$h"
+            "tiktok" -> "https://www.tiktok.com/@$h"
+            "instagram" -> "https://www.instagram.com/$h/"
+            "twitter" -> "https://x.com/$h"
+            "facebook" -> "https://www.facebook.com/$h"
+            else -> null
+        }
+    }
+
+    /**
+     * تحقق حقيقي: هل الحساب موجود فعلاً على المنصة؟
+     * GET حقيقي لصفحة الملف العام: 200 = موجود، 404 = غير موجود،
+     * غير ذلك (حماية بوتات) = غير مؤكد.
+     */
+    suspend fun verifyProfileExists(platformId: String, handle: String): VerifyResult =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val url = publicProfileUrl(platformId, handle) ?: return@withContext VerifyResult.UNKNOWN
+            try {
+                val req = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+                    .head()
+                    .build()
+                verifyClient.newCall(req).execute().use { resp ->
+                    when (resp.code) {
+                        200 -> VerifyResult.EXISTS
+                        404, 410 -> VerifyResult.MISSING
+                        else -> VerifyResult.UNKNOWN
+                    }
+                }
+            } catch (_: Exception) {
+                VerifyResult.UNKNOWN
+            }
+        }
+
+    /**
+     * تحقق حقيقي من رمز Google OAuth عبر نقطة tokeninfo الرسمية (لا تحتاج مفتاحاً).
+     * 200 = الرمز صالح ويمثل حساباً حقيقياً.
+     */
+    suspend fun verifyGoogleToken(token: String): Boolean =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            if (token.isBlank()) return@withContext false
+            try {
+                val req = okhttp3.Request.Builder()
+                    .url("https://oauth2.googleapis.com/tokeninfo?access_token=${token.trim()}")
+                    .get()
+                    .build()
+                verifyClient.newCall(req).execute().use { it.code == 200 }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+    /** ربط مع تحقق حقيقي: يحفظ نتيجة التحقق (مؤكد/غير مؤكد) مع الحساب. */
+    fun setConnectionVerified(context: Context, platformId: String, verified: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("${platformId}_verified", verified).apply()
+    }
+
+    fun isConnectionVerified(context: Context, platformId: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean("${platformId}_verified", false)
+    }
+
     fun getAccounts(context: Context): List<SocialPlatformAccount> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 

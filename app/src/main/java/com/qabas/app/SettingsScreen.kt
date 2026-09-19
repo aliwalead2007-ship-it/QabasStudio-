@@ -47,6 +47,7 @@ fun SettingsScreen(
     var accountsList by remember { mutableStateOf(SocialAccountManager.getAccounts(context)) }
     var linkDialogState by remember { mutableStateOf<String?>(null) } // "youtube", "tiktok", "instagram"
     var isLinking by remember { mutableStateOf(false) }
+    var linkVerifyMsg by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     
     val selectedPlatform = remember(linkDialogState, accountsList) {
@@ -211,7 +212,14 @@ fun SettingsScreen(
                     if (isLinking) {
                         Spacer(modifier = Modifier.height(8.dp))
                         CircularProgressIndicator(color = GoldPrimary, modifier = Modifier.align(Alignment.CenterHorizontally))
+                        linkVerifyMsg?.let {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(it, color = GoldSecondary, fontFamily = CairoFont, fontSize = 12.sp)
+                        }
                     } else {
+                        linkVerifyMsg?.let {
+                            Text(it, color = Color(0xFFE53935), fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                         Text(
                             text = if (selectedPlatform.isConnected) "الحالة الحالية: مربوط بنجاح 🟢" else "الحالة الحالية: غير مربوط ⚪",
                             color = if (selectedPlatform.isConnected) Color(0xFF4CAF50) else Color.Gray,
@@ -227,14 +235,42 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             isLinking = true
+                            linkVerifyMsg = null
                             coroutineScope.launch {
-                                kotlinx.coroutines.delay(800)
                                 val newHandle = customHandle.ifBlank { selectedPlatform.handle }
-                                SocialAccountManager.toggleConnection(context, selectedPlatform.id, true, newHandle, customToken)
+                                val token = customToken.trim()
+                                // 1) تحقق حقيقي: هل الحساب موجود على المنصة؟
+                                linkVerifyMsg = "نتحقق من وجود الحساب على ${selectedPlatform.name}..."
+                                val exists = SocialAccountManager.verifyProfileExists(selectedPlatform.id, newHandle)
+                                if (exists == SocialAccountManager.VerifyResult.MISSING) {
+                                    isLinking = false
+                                    linkVerifyMsg = "الحساب غير موجود على المنصة — تحقق من المعرّف"
+                                    return@launch
+                                }
+                                // 2) إن أُدخل رمز Google (يوتيوب): تحقق حقيقي من صلاحيته
+                                var tokenOk = true
+                                if (token.isNotBlank() && selectedPlatform.id == "youtube") {
+                                    linkVerifyMsg = "نتحقق من صلاحية الرمز..."
+                                    tokenOk = SocialAccountManager.verifyGoogleToken(token)
+                                    if (!tokenOk) {
+                                        isLinking = false
+                                        linkVerifyMsg = "الرمز مرفوض من Google — أدخل رمز OAuth صالحاً أو اتركه فارغاً"
+                                        return@launch
+                                    }
+                                }
+                                val verified = exists == SocialAccountManager.VerifyResult.EXISTS || tokenOk && token.isNotBlank()
+                                SocialAccountManager.toggleConnection(context, selectedPlatform.id, true, newHandle, token)
+                                SocialAccountManager.setConnectionVerified(context, selectedPlatform.id, verified)
                                 accountsList = SocialAccountManager.getAccounts(context)
                                 isLinking = false
                                 linkDialogState = null
-                                Toast.makeText(context, Translator.tr("تم حفظ وتأكيد ربط حساب ") + selectedPlatform.name + " 🚀", Toast.LENGTH_SHORT).show()
+                                linkVerifyMsg = null
+                                Toast.makeText(
+                                    context,
+                                    if (verified) "تم ربط ${selectedPlatform.name} (تم التحقق ✅)"
+                                    else "تم حفظ ${selectedPlatform.name} (تعذّر التأكيد — تحقق يدوياً)",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
@@ -253,6 +289,7 @@ fun SettingsScreen(
                                 coroutineScope.launch {
                                     kotlinx.coroutines.delay(500)
                                     SocialAccountManager.toggleConnection(context, selectedPlatform.id, false)
+                                    SocialAccountManager.setConnectionVerified(context, selectedPlatform.id, false)
                                     accountsList = SocialAccountManager.getAccounts(context)
                                     isLinking = false
                                     linkDialogState = null
@@ -391,6 +428,48 @@ fun SettingsScreen(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                        // الحسابات المربوطة — يراها صاحب الملف فوراً
+                        val linkedNow = accountsList.filter { it.isConnected }
+                        if (linkedNow.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                linkedNow.take(5).forEach { acc ->
+                                    val ok = SocialAccountManager.isConnectionVerified(context, acc.id)
+                                    val (ic, tint) = when (acc.id) {
+                                        "youtube" -> Icons.Default.OndemandVideo to Color(0xFFF44336)
+                                        "tiktok" -> Icons.Default.MusicVideo to Color.White
+                                        "instagram" -> Icons.Default.CameraAlt to Color(0xFFE1306C)
+                                        "twitter" -> Icons.Default.AlternateEmail to Color(0xFF1DA1F2)
+                                        else -> Icons.Default.Share to GoldPrimary
+                                    }
+                                    Surface(
+                                        color = Color(0xFF151B2B),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (ok) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFFF59E0B).copy(alpha = 0.5f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(ic, contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                acc.handle.take(14),
+                                                color = Color.White, fontFamily = NotoSansFont,
+                                                fontSize = 10.sp, maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     if (!isAdmin && !isGuest && !isRelative) {
@@ -763,7 +842,12 @@ fun SettingsScreen(
             ) {
                 accountsList.forEachIndexed { index, account ->
                     if (index > 0) Spacer(modifier = Modifier.height(8.dp))
-                    val statusText = if (account.isConnected) "${account.handle} (مربوط 🟢)" else Translator.tr("غير مربوط ⚪")
+                    val verified = account.isConnected && SocialAccountManager.isConnectionVerified(context, account.id)
+                    val statusText = when {
+                        !account.isConnected -> Translator.tr("غير مربوط ⚪")
+                        verified -> "${account.handle} (مربوط ✅)"
+                        else -> "${account.handle} (غير مؤكد ⚠️)"
+                    }
                     val icon = when (account.id) {
                         "youtube" -> Icons.Default.OndemandVideo
                         "tiktok" -> Icons.Default.MusicVideo
@@ -785,6 +869,7 @@ fun SettingsScreen(
                         icon = icon,
                         iconColor = iconColor
                     ) {
+                        linkVerifyMsg = null
                         linkDialogState = account.id
                     }
                 }
