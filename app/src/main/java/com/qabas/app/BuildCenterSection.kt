@@ -884,8 +884,7 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                     agentReport?.let {
                         Text(it, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
                     }
-                    // ── 3) الدمج بعد المراجعة ──
-                    if (prNumber > 0) {
+                    // ── 3) الدمج بعد المراجعة ──                    if (prNumber > 0) {
                         var merging by remember { mutableStateOf(false) }
                         Button(
                             onClick = {
