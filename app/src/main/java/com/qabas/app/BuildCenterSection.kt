@@ -1196,7 +1196,6 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
             }
         }
     }
-}
 
 @Composable
 private fun BuildPill(text: String, tint: Color) {
