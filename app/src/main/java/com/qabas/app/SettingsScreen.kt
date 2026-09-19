@@ -739,6 +739,82 @@ fun SettingsScreen(
                             }
                         }
                         if (updateState == "found") {
+                            if (updateInfo?.deltaUrl != null && (updateInfo?.deltaSize ?: 0) > 0) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = {
+                                            updateInfo?.let { info ->
+                                                updateState = "downloading"
+                                                updateProgress = 0
+                                                updateDownloadedBytes = 0L
+                                                updateTotalBytes = 0L
+                                                updateSpeedBps = 0L
+                                                updatePhase = null
+                                                updateHandle = UpdateManager.downloadAndInstall(context, info,
+                                                    onProgress = { p ->
+                                                        updateProgress = p.percent
+                                                        updateDownloadedBytes = p.bytesDownloaded
+                                                        updateTotalBytes = p.totalBytes
+                                                        updateSpeedBps = p.speedBytesPerSec
+                                                        updatePhase = p.phase
+                                                    },
+                                                    onDone = { ok, msg ->
+                                                        updateHandle = null
+                                                        updateDoneMessage = msg
+                                                        updateState = when {
+                                                            ok -> "done"
+                                                            msg.contains("أُلغي") -> "found"
+                                                            else -> "error"
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("تحديث صغير", color = Color.White, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            updateInfo?.let { info ->
+                                                updateState = "downloading"
+                                                updateProgress = 0
+                                                updateDownloadedBytes = 0L
+                                                updateTotalBytes = 0L
+                                                updateSpeedBps = 0L
+                                                updatePhase = null
+                                                updateHandle = UpdateManager.downloadAndInstall(context, info,
+                                            forceFull = true,
+                                                    onProgress = { p ->
+                                                        updateProgress = p.percent
+                                                        updateDownloadedBytes = p.bytesDownloaded
+                                                        updateTotalBytes = p.totalBytes
+                                                        updateSpeedBps = p.speedBytesPerSec
+                                                        updatePhase = p.phase
+                                                    },
+                                                    onDone = { ok, msg ->
+                                                        updateHandle = null
+                                                        updateDoneMessage = msg
+                                                        updateState = when {
+                                                            ok -> "done"
+                                                            msg.contains("أُلغي") -> "found"
+                                                            else -> "error"
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("تحديث كامل", color = Color.Black, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        } else {
                             Button(
                                 onClick = {
                                     updateInfo?.let { info ->

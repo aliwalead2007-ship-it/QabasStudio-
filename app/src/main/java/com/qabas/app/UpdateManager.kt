@@ -174,14 +174,15 @@ object UpdateManager {
         update: UpdateInfo,
         onProgress: (DownloadProgress) -> Unit = {},
         onDone: (Boolean, String) -> Unit = { _, _ -> },
-        authToken: String? = null
+        authToken: String? = null,
+        forceFull: Boolean = false
     ): DownloadHandle {
         val handle = DownloadHandle()
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
 
-                if (!update.deltaUrl.isNullOrBlank() && update.deltaSize > 0) {
+                if (!forceFull && !update.deltaUrl.isNullOrBlank() && update.deltaSize > 0) {
                     Log.d(TAG, "Trying delta (${formatSize(update.deltaSize)})…")
                     val patched = tryDeltaUpdate(context, update, updatesDir, authToken, handle, onProgress)
                     if (patched != null && patched.exists() && patched.length() > 1_000_000) {
