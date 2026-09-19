@@ -884,7 +884,8 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                     agentReport?.let {
                         Text(it, color = TextSecondary, fontFamily = NotoSansFont, fontSize = 11.sp)
                     }
-                    // ── 3) الدمج بعد المراجعة ──                    if (prNumber > 0) {
+                    // ── 3) الدمج بعد المراجعة ──
+                    if (prNumber > 0) {
                         var merging by remember { mutableStateOf(false) }
                         Button(
                             onClick = {
@@ -1184,15 +1185,19 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                 }
             }
             4 -> {
-                AiEditorSection(
-                    context = context,
-                    owner = owner.trim(),
-                    repo = repo.trim(),
-                    token = token.trim(),
-                    onFileCommitted = { refreshAll() },
-                    onRequestBuild = { tab = 0; triggerBuild() },
-                    onNavigateTo = onNavigateTo
-                )
+                // المحرر يحمل LazyColumn وweight داخلياً — يحتاج ارتفاعاً محدوداً
+                // داخل العمود الممرر وإلا تنهار قياساته وتتداخل البطاقات
+                Box(modifier = Modifier.fillMaxWidth().height(560.dp)) {
+                    AiEditorSection(
+                        context = context,
+                        owner = owner.trim(),
+                        repo = repo.trim(),
+                        token = token.trim(),
+                        onFileCommitted = { refreshAll() },
+                        onRequestBuild = { tab = 0; triggerBuild() },
+                        onNavigateTo = onNavigateTo
+                    )
+                }
             }
         }
     }
