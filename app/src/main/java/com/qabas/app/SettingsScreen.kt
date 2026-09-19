@@ -319,7 +319,7 @@ fun SettingsScreen(
     
     var currentLang by remember { mutableStateOf(prefs.getString("app_language", "ar") ?: "ar") }
     var defaultQuality by remember { mutableStateOf(prefs.getString("defaultQuality", "4k") ?: "4k") }
-    var autoPublishing by remember { mutableStateOf(prefs.getBoolean("auto_publish", false)) }
+    var autoPublishing by remember { mutableStateOf(prefs.getBoolean("auto_publish", true)) }
 
     val savedDisplayName = prefs.getString("user_display_name", "")?.takeIf { it.isNotBlank() } ?: (if (isGuest) Translator.tr("حساب زائر") else userEmail.substringBefore("@"))
     val avatarUriString = prefs.getString("user_avatar_uri", "") ?: ""
@@ -515,8 +515,8 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(Translator.tr("النشر التلقائي الذكي"), color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text(Translator.tr("جدولة ونشر المقاطع تلقائياً في أفضل أوقات التفاعل"), color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
+                        Text(Translator.tr("تذكيرات مواعيد النشر"), color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(Translator.tr("إشعار عند حلول وقت النشر المثالي الذي جدولته"), color = Color.Gray, fontFamily = NotoSansFont, fontSize = 12.sp)
                     }
                     Switch(
                         checked = autoPublishing,

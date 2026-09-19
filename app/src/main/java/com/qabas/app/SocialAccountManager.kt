@@ -795,6 +795,55 @@ object SocialAccountManager {
     /**
      * Schedules a local smart reminder and notification for ideal publish timing.
      */
+    fun isPublishRemindersEnabled(context: Context): Boolean {
+        return context.getSharedPreferences("qabas_prefs", Context.MODE_PRIVATE)
+            .getBoolean("auto_publish", true)
+    }
+
+    /** يضبط منبه النظام لعنصر مجدول (يُستخدم عند الإنشاء وعند الإقلاع). */
+    fun rescheduleItemAlarm(context: Context, item: ScheduledPublishItem): Boolean {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                ?: return false
+            val intent = Intent(context, SmartPublishReminderReceiver::class.java).apply {
+                putExtra("item_id", item.id)
+                putExtra("title", item.title)
+                putExtra("platform_name", item.platformName)
+                putExtra("hashtags", item.hashtags)
+            }
+            val requestCode = (item.id.hashCode() and 0x7FFFFFFF)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                // بلا إذن المنبه الدقيق: منبه تقريبي يفي بالغرض بدل الفشل الصامت
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    item.scheduledTimeMillis,
+                    pendingIntent
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    item.scheduledTimeMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    item.scheduledTimeMillis,
+                    pendingIntent
+                )
+            }
+            return true
+        } catch (_: Exception) {
+            return false
+        }
+    }
+
     fun schedulePublishReminder(
         context: Context,
         title: String,
@@ -832,44 +881,20 @@ object SocialAccountManager {
         scheduledList.add(0, scheduledItem)
         saveScheduledList(context, scheduledList)
 
-        // Set AlarmManager Exact Alarm
-        try {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-            if (alarmManager != null) {
-                val intent = Intent(context, SmartPublishReminderReceiver::class.java).apply {
-                    putExtra("item_id", scheduledItem.id)
-                    putExtra("title", title)
-                    putExtra("platform_name", platformName)
-                    putExtra("hashtags", hashtags)
-                }
-
-                val requestCode = (scheduledItem.id.hashCode() and 0x7FFFFFFF)
-                val pendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    requestCode,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-                )
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        calendar.timeInMillis,
-                        pendingIntent
-                    )
-                } else {
-                    alarmManager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        calendar.timeInMillis,
-                        pendingIntent
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Set AlarmManager alarm (exact when allowed, inexact fallback otherwise)
+        rescheduleItemAlarm(context, scheduledItem)
 
         return scheduledItem
+    }
+
+    /** العناصر المستقبلية فقط — المنتهية تُحذف مع منبهاتها تلقائياً. */
+    fun getActiveScheduledPublishItems(context: Context): List<ScheduledPublishItem> {
+        val now = System.currentTimeMillis()
+        val all = getScheduledPublishItems(context)
+        val expired = all.filter { it.scheduledTimeMillis <= now }
+        if (expired.isEmpty()) return all
+        expired.forEach { cancelScheduledPublish(context, it.id) }
+        return getScheduledPublishItems(context)
     }
 
     fun getScheduledPublishItems(context: Context): List<ScheduledPublishItem> {
@@ -940,6 +965,7 @@ object SocialAccountManager {
     }
 
     fun triggerPublishNotification(context: Context, title: String, platformName: String, hashtags: String) {
+        if (!isPublishRemindersEnabled(context)) return
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             if (notificationManager != null) {
@@ -1130,6 +1156,17 @@ class SmartPublishReminderReceiver : BroadcastReceiver() {
         val platformName = intent?.getStringExtra("platform_name") ?: "منصات التواصل"
         val hashtags = intent?.getStringExtra("hashtags") ?: "#قبس #أثر_لا_ينقطع"
         SocialAccountManager.triggerPublishNotification(context, title, platformName, hashtags)
+    }
+}
+
+/** يعيد ضبط منبهات التذكيرات المستقبلية بعد إعادة تشغيل الجهاز. */
+class PublishScheduleBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
+        try {
+            val items = SocialAccountManager.getActiveScheduledPublishItems(context)
+            items.forEach { SocialAccountManager.rescheduleItemAlarm(context, it) }
+        } catch (_: Exception) { }
     }
 }
 

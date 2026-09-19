@@ -53,7 +53,37 @@ fun SmartPublishScheduleDialog(
     }
 
     var scheduledList by remember {
-        mutableStateOf(SocialAccountManager.getScheduledPublishItems(context))
+        mutableStateOf(SocialAccountManager.getActiveScheduledPublishItems(context))
+    }
+
+    var customHour by remember { mutableStateOf("") }
+    var customMinute by remember { mutableStateOf("") }
+    // موعد مخصص يكتبه المستخدم — يظهر كخيار مع المواعيد الذكية عند صلاحيته
+    val customSlot = remember(customHour, customMinute) {
+        val h = customHour.trim().toIntOrNull()
+        val m = customMinute.trim().toIntOrNull()
+        if (h != null && m != null && h in 0..23 && m in 0..59) {
+            val label = when {
+                h == 0 -> "12:$m ص"
+                h < 12 -> "$h:$m ص"
+                h == 12 -> "12:$m م"
+                else -> "${h - 12}:$m م"
+            }
+            SmartPublishSlot(
+                id = "custom_time",
+                platformId = selectedPlatformId,
+                platformName = platforms.firstOrNull { it.first == selectedPlatformId }?.second ?: selectedPlatformId,
+                timeLabel = "$label (مخصص)",
+                hourOfDay = h,
+                minute = m,
+                engagementScore = 0,
+                rationale = "موعد اخترته بنفسك",
+                isRecommended = false
+            )
+        } else null
+    }
+    val allSlots = remember(slots, customSlot) {
+        if (customSlot != null) slots + customSlot else slots
     }
 
     var activeTab by remember { mutableIntStateOf(0) } // 0: New Schedule, 1: Active Reminders
@@ -175,6 +205,44 @@ fun SmartPublishScheduleDialog(
                             }
                         }
 
+                        // Custom time (موعد مخصص يكتبه المستخدم)
+                        item {
+                            Column {
+                                Text("موعد مخصص ⏱️ (اختياري)", color = Color.White, fontFamily = NotoSansFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = customHour,
+                                        onValueChange = { customHour = it.filter { c -> c.isDigit() }.take(2) },
+                                        label = { Text("ساعة 0-23", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = GoldPrimary,
+                                            unfocusedBorderColor = Color(0xFF1E293B),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = customMinute,
+                                        onValueChange = { customMinute = it.filter { c -> c.isDigit() }.take(2) },
+                                        label = { Text("دقيقة 0-59", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = GoldPrimary,
+                                            unfocusedBorderColor = Color(0xFF1E293B),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         // Smart Slots based on Audience Analytics
                         item {
                             Column {
@@ -186,7 +254,7 @@ fun SmartPublishScheduleDialog(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    slots.forEach { slot ->
+                                    allSlots.forEach { slot ->
                                         val isSelected = selectedSlot?.id == slot.id
                                         Box(
                                             modifier = Modifier
@@ -218,7 +286,7 @@ fun SmartPublishScheduleDialog(
                                                         border = androidx.compose.foundation.BorderStroke(1.dp, if (slot.isRecommended) Color(0xFF4CAF50) else Color(0xFF3B82F6))
                                                     ) {
                                                         Text(
-                                                            "${slot.engagementScore}% تفاعل 🚀",
+                                                            if (slot.id == "custom_time") "موعدك ⏱️" else "${slot.engagementScore}% تفاعل 🚀",
                                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                             color = if (slot.isRecommended) Color(0xFF4CAF50) else Color(0xFF60A5FA),
                                                             fontFamily = CairoFont,
@@ -291,7 +359,7 @@ fun SmartPublishScheduleDialog(
 
                                         IconButton(onClick = {
                                             SocialAccountManager.cancelScheduledPublish(context, item.id)
-                                            scheduledList = SocialAccountManager.getScheduledPublishItems(context)
+                                            scheduledList = SocialAccountManager.getActiveScheduledPublishItems(context)
                                             Toast.makeText(context, "تم إلغاء التذكير 🗑️", Toast.LENGTH_SHORT).show()
                                         }) {
                                             Icon(Icons.Default.DeleteOutline, contentDescription = "حذف", tint = Color.Red.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
@@ -322,7 +390,7 @@ fun SmartPublishScheduleDialog(
                             minute = slot.minute,
                             hashtags = initialHashtags
                         )
-                        scheduledList = SocialAccountManager.getScheduledPublishItems(context)
+                        scheduledList = SocialAccountManager.getActiveScheduledPublishItems(context)
                         Toast.makeText(context, "تمت جدولة التذكير بنجاح في ${scheduledItem.formattedTime} ⏰✨", Toast.LENGTH_LONG).show()
                         activeTab = 1
                     },
