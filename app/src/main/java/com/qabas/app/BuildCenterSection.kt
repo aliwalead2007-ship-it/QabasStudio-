@@ -238,10 +238,11 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                 AuditLogger.log(context, "build_trigger", "تشغيل بناء APK من غرفة تحكم GitHub")
                 // ربط التقدم بالطلب النشط + إشعار العميل تلقائياً (لا رجوع للخلف)
                 AppRequestService.getActiveBuildRequest(context)?.let { req ->
+                    val earlyPrefs = context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE)
                     if (req.progress < 80) {
                         AppRequestService.updateRequestProgressAndPayment(context, req.id, progress = 80)
                     }
-                    if (!reqPrefs.getBoolean("silent_${req.id}", false)) {
+                    if (!earlyPrefs.getBoolean("silent_${req.id}", false)) {
                         AppRequestService.sendMessage(
                             context,
                             AppRequestService.ChatMessage(
@@ -932,8 +933,9 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                 val body = apiGet("/repos/${owner.trim()}/${repo.trim()}/releases/latest", auth = token.isNotBlank())
                                 withContext(Dispatchers.Main) {
                                     delivering = false
-                                    val tag = body?.optString("tag_name").orEmpty()
-                                    val name = body?.optString("name").orEmpty()
+                                    val parsed = body?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
+                                    val tag = parsed?.optString("tag_name").orEmpty()
+                                    val name = parsed?.optString("name").orEmpty()
                                     if (tag.isNotBlank()) {
                                         AppRequestService.sendMessage(
                                             context,
@@ -945,8 +947,8 @@ fun BuildCenterSection(context: Context, onNavigateTo: (AppState) -> Unit = {}) 
                                         AppRequestService.updateRequestProgressAndPayment(
                                             context, req.id, status = "completed", progress = 100
                                         )
-                                        reqPrefs.edit().putBoolean("silent_${req.id}", false).apply()
-                                        silentMode = false
+                                        context.getSharedPreferences("qabas_requests_prefs", Context.MODE_PRIVATE).edit().putBoolean("silent_${req.id}", false).apply()
+                                        // silentMode banner refreshes on next recomposition
                                         AppRequestService.clearActiveBuildRequest(context)
                                         activeReq.value = null
                                         AuditLogger.log(context, "request_delivered", "تسليم $tag للطلب: ${req.title}")

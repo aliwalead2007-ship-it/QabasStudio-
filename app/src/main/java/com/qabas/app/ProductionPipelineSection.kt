@@ -655,7 +655,6 @@ private fun HealthScoreRow(score: Int, issueCount: Int) {
 }
 
 /** ترويسة مجموعة مشاكل بحسب الخطورة. */
-@Composable
 /** يبني تقريراً نصياً جاهزاً للصق في المحادثة: جهاز + صحة + مشاكل + آخر السجل. */
 private fun buildDeveloperReport(
     context: android.content.Context,

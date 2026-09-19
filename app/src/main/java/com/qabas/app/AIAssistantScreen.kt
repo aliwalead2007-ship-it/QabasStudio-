@@ -452,7 +452,6 @@ fun AIAssistantScreen(
                     }
                 }
                 }
-            }
 
             // 2. Chat Area
             LazyColumn(
@@ -904,5 +903,6 @@ fun AIAssistantScreen(
             },
             containerColor = Color(0xFF151B2B)
         )
+    }
     }
 }
