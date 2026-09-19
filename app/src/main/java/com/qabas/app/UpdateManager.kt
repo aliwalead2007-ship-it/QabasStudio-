@@ -100,12 +100,8 @@ object UpdateManager {
             val tagHasBuildNumber = tagName.contains("+")
             val currentVersionName = getCurrentVersionName(context)
             val releaseVersionName = tagName.removePrefix("v").trim().substringBefore("+")
-            // المقارنة الأساسية بالاسم: نفس الاسم = لا تحديث، مهما كان رقم البناء.
-            // (versionCode المحلي من BUILD_NUMBER لا يقارَن بأرقام مشتقة من الاسم وإلا ظهر نفس التحديث للأبد)
-            if (releaseVersionName == currentVersionName) {
-                prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply()
-                return@withContext null
-            }
+            // المقارنة الأساسية برقم البناء (يتصاعد مع كل CI run) — اسم الإصدار
+            // ثابت (1.2.1) فلا يصلح وحده لكشف التحديث.
             if (tagHasBuildNumber && releaseVersionCode <= currentVersionCode) {
                 prefs.edit().putLong("update_last_check", System.currentTimeMillis()).apply()
                 return@withContext null
