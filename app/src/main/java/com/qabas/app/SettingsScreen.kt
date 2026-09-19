@@ -814,6 +814,25 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+                        } else if (updateState == "downloading") {
+                            OutlinedButton(
+                                onClick = { updateHandle?.cancel() },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("إلغاء", color = Color(0xFFEF4444), fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (updateState == null || updateState == "none" || updateState == "error") {
+                            Text(
+                                text = if (updateState == "error") "إعادة المحاولة" else "فحص",
+                                color = updateAccent,
+                                fontFamily = CairoFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         } else {
                             Button(
                                 onClick = {
@@ -850,25 +869,6 @@ fun SettingsScreen(
                             ) {
                                 Text("تحديث الآن", color = Color.White, fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
-                        } else if (updateState == "downloading") {
-                            OutlinedButton(
-                                onClick = { updateHandle?.cancel() },
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("إلغاء", color = Color(0xFFEF4444), fontFamily = CairoFont, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else if (updateState == null || updateState == "none" || updateState == "error") {
-                            Text(
-                                text = if (updateState == "error") "إعادة المحاولة" else "فحص",
-                                color = updateAccent,
-                                fontFamily = CairoFont,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
                         }
                         if (updateState == "found" && updateInfo != null) {
